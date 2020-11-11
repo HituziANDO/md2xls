@@ -9,9 +9,8 @@ import (
 
 func main() {
 	cfg := md.ReadConfig()
-	fmt.Println(cfg)
 
-	text := readFile(cfg.Src)
+	text := readFile(*cfg.Src)
 
 	var parser md.Parser
 	components := parser.Parse(text)

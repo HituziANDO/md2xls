@@ -8,23 +8,37 @@ import (
 )
 
 type Config struct {
-	Src        string
-	Dst        string
-	FontFamily string
+	Src        *string
+	Dst        *string
+	FontFamily *string
 }
 
 const cfgFile = ".m2x.yml"
 
 func ReadConfig() Config {
-	cfg := Config{Src: "README.md", Dst: "README.xlsx", FontFamily: "ＭＳ ゴシック"}
+	src := "README.md"
+	dst := "README.xlsx"
+	fontFamily := "ＭＳ ゴシック"
+	defaultCfg := Config{&src, &dst, &fontFamily}
 
 	buf, err := ioutil.ReadFile(cfgFile)
 	if err != nil {
-		return cfg
+		return defaultCfg
 	}
 
+	var cfg Config
 	if err := yaml.Unmarshal(buf, &cfg); err != nil {
 		log.Fatal(err)
+	}
+
+	if cfg.Src == nil {
+		cfg.Src = defaultCfg.Src
+	}
+	if cfg.Dst == nil {
+		cfg.Dst = defaultCfg.Dst
+	}
+	if cfg.FontFamily == nil {
+		cfg.FontFamily = defaultCfg.FontFamily
 	}
 
 	return cfg

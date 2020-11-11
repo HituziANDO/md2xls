@@ -32,14 +32,14 @@ func NewRenderer(cfg Config) *Renderer {
 
 func (r *Renderer) Render(components []Component) {
 	cfg := r.cfg
-	srcDir := path.Dir(cfg.Src)
+	srcDir := path.Dir(*cfg.Src)
 
 	f := excelize.NewFile()
 	index := f.NewSheet(sheetName)
 	f.SetActiveSheet(index)
 	f.DeleteSheet(defaultSheetName)
 
-	stylist := Style{f: f, fontFamily: cfg.FontFamily}
+	stylist := Style{f: f, fontFamily: *cfg.FontFamily}
 
 	// A-H列までを使用する
 	// AddPictureFromBytesの中でセルのサイズから画像をリサイズしているため、先にセルのサイズを変更しておく必要がある
@@ -230,11 +230,11 @@ func (r *Renderer) Render(components []Component) {
 		rowCur++
 	}
 
-	if err := os.MkdirAll(path.Dir(cfg.Dst), 0777); err != nil {
+	if err := os.MkdirAll(path.Dir(*cfg.Dst), 0777); err != nil {
 		fmt.Println(err)
 	}
 
-	if err := f.SaveAs(cfg.Dst); err != nil {
+	if err := f.SaveAs(*cfg.Dst); err != nil {
 		fmt.Println(err)
 	}
 }
