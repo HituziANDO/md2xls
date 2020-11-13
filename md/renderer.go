@@ -8,9 +8,12 @@ import (
 	"image/jpeg"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"path"
+	"regexp"
 
 	"github.com/360EntSecGroup-Skylar/excelize"
 	"github.com/nfnt/resize"
@@ -135,19 +138,23 @@ func (r *Renderer) Render(components []Component) {
 		} else if comp.Type() == TypeImage {
 			img := comp.(Image)
 
-			file, err := os.Open(srcDir + "/" + img.Path)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				return
+			// TODO: Support svg
+
+			imgPath := srcDir + "/" + img.Path
+			if regexp.MustCompile("^http[|s]://").MatchString(img.Path) {
+				p, err := fetchImage(img.Path)
+				if err != nil {
+					fmt.Println(err)
+					continue
+				}
+				imgPath = *p
 			}
 
-			oriImg, t, err := image.Decode(file)
+			oriImg, err := openImage(imgPath)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				return
+				fmt.Println(err)
+				continue
 			}
-			file.Close()
-			fmt.Println("Type of image:", t)
 
 			rect := oriImg.Bounds()
 			oriW := float64(rect.Dx())
@@ -223,6 +230,7 @@ func (r *Renderer) Render(components []Component) {
 			rowCur = rowCur + code.RowNum() - 1
 		} else if comp.Type() == TypePlainText {
 			plainText := comp.(PlainText)
+			// TODO: 長いテキストを改行する
 			f.SetCellValue(sheetName, cellName, plainText.Text)
 			f.SetCellStyle(sheetName, cellName, cellName, stylist.PlainTextStyle())
 		}
@@ -237,4 +245,46 @@ func (r *Renderer) Render(components []Component) {
 	if err := f.SaveAs(*cfg.Dst); err != nil {
 		fmt.Println(err)
 	}
+}
+
+// Fetch an image with http
+func fetchImage(url string) (*string, error) {
+	response, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	if err := os.MkdirAll("tmp", 0777); err != nil {
+		return nil, err
+	}
+
+	tmpPath := "tmp/" + path.Base(url)
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	_, err = io.Copy(f, response.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tmpPath, nil
+}
+
+func openImage(path string) (image.Image, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return img, nil
 }
