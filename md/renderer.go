@@ -42,7 +42,7 @@ func (r *Renderer) Render(components []Component) {
 	f.SetActiveSheet(index)
 	f.DeleteSheet(defaultSheetName)
 
-	stylist := Style{f: f, fontFamily: *cfg.FontFamily}
+	stylist := Style{f: f, cfg: &cfg}
 
 	// A-H列までを使用する
 	// AddPictureFromBytesの中でセルのサイズから画像をリサイズしているため、先にセルのサイズを変更しておく必要がある

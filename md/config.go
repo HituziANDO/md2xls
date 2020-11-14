@@ -7,10 +7,20 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+type Font struct {
+	Family *string
+	Size   *float64
+}
+
+type CodeStyle struct {
+	Font *Font
+}
+
 type Config struct {
-	Src        *string
-	Dst        *string
-	FontFamily *string
+	Src       *string
+	Dst       *string
+	Font      *Font
+	CodeStyle *CodeStyle
 }
 
 const cfgFile = ".m2x.yml"
@@ -18,8 +28,12 @@ const cfgFile = ".m2x.yml"
 func ReadConfig() Config {
 	src := "README.md"
 	dst := "README.xlsx"
-	fontFamily := "ＭＳ ゴシック"
-	defaultCfg := Config{&src, &dst, &fontFamily}
+	fontFamily := "Meiryo UI"
+	fontSize := 11.0
+	codeFontFamily := "Arial"
+	codeFontSize := 10.5
+	code := CodeStyle{&Font{&codeFontFamily, &codeFontSize}}
+	defaultCfg := Config{&src, &dst, &Font{&fontFamily, &fontSize}, &code}
 
 	buf, err := ioutil.ReadFile(cfgFile)
 	if err != nil {
@@ -37,8 +51,29 @@ func ReadConfig() Config {
 	if cfg.Dst == nil {
 		cfg.Dst = defaultCfg.Dst
 	}
-	if cfg.FontFamily == nil {
-		cfg.FontFamily = defaultCfg.FontFamily
+	if cfg.Font == nil {
+		cfg.Font = defaultCfg.Font
+	} else {
+		if cfg.Font.Family == nil {
+			cfg.Font.Family = defaultCfg.Font.Family
+		}
+		if cfg.Font.Size == nil {
+			cfg.Font.Size = defaultCfg.Font.Size
+		}
+	}
+	if cfg.CodeStyle == nil {
+		cfg.CodeStyle = defaultCfg.CodeStyle
+	} else {
+		if cfg.CodeStyle.Font == nil {
+			cfg.CodeStyle.Font = defaultCfg.CodeStyle.Font
+		} else {
+			if cfg.CodeStyle.Font.Family == nil {
+				cfg.CodeStyle.Font.Family = defaultCfg.CodeStyle.Font.Family
+			}
+			if cfg.CodeStyle.Font.Size == nil {
+				cfg.CodeStyle.Font.Size = defaultCfg.CodeStyle.Font.Size
+			}
+		}
 	}
 
 	return cfg

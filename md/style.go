@@ -10,8 +10,8 @@ import (
 // https://github.com/360EntSecGroup-Skylar/excelize/blob/882abb80988b7c50286dd2e6c6589fab10662db6/xmlStyles.go#L362
 // https://xuri.me/excelize/ja/style.html
 type Style struct {
-	f          *excelize.File
-	fontFamily string
+	f   *excelize.File
+	cfg *Config
 }
 
 func (s *Style) H1Style() int {
@@ -27,7 +27,7 @@ func (s *Style) H1Style() int {
 			"vertical": "center",
 			"horizontal": "left"
 		}
-	}`, s.fontFamily)
+	}`, *s.cfg.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -47,7 +47,7 @@ func (s *Style) H2Style() int {
 			"vertical": "center",
 			"horizontal": "left"
 		}
-	}`, s.fontFamily)
+	}`, *s.cfg.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -64,7 +64,7 @@ func (s *Style) H3Style() int {
 			"vertical": "center",
 			"horizontal": "left"
 		}
-	}`, s.fontFamily)
+	}`, *s.cfg.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -73,7 +73,7 @@ func (s *Style) PlainTextStyle() int {
 	{
 		"font": {
 			"bold": false,
-			"size": 11,
+			"size": %f,
 			"family": "%s"
 		},
 		"alignment": {
@@ -81,7 +81,7 @@ func (s *Style) PlainTextStyle() int {
 			"vertical": "center",
 			"horizontal": "left"
 		}
-	}`, s.fontFamily)
+	}`, *s.cfg.Font.Size, *s.cfg.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -90,7 +90,7 @@ func (s *Style) TableCellStyle() int {
 	{
 		"font": {
 			"bold": false,
-			"size": 11,
+			"size": %f,
 			"family": "%s"
 		},
 		"border": [
@@ -109,7 +109,7 @@ func (s *Style) TableCellStyle() int {
 			"pattern": 1,
 			"color": [ "#FFFFFF" ]
 		}
-	}`, s.fontFamily)
+	}`, *s.cfg.Font.Size, *s.cfg.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -118,7 +118,7 @@ func (s *Style) TableMergeCellStyle() int {
 	{
 		"font": {
 			"bold": false,
-			"size": 11,
+			"size": %f,
 			"family": "%s"
 		},
 		"border": [
@@ -137,7 +137,7 @@ func (s *Style) TableMergeCellStyle() int {
 			"pattern": 1,
 			"color": [ "#FFFFFF" ]
 		}
-	}`, s.fontFamily)
+	}`, *s.cfg.Font.Size, *s.cfg.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -146,7 +146,7 @@ func (s *Style) TableHeaderStyle() int {
 	{
 		"font": {
 			"bold": false,
-			"size": 11,
+			"size": %f,
 			"family": "%s"
 		},
 		"border": [
@@ -165,7 +165,7 @@ func (s *Style) TableHeaderStyle() int {
 			"pattern": 1,
 			"color": [ "#DDDDDD" ]
 		}
-	}`, s.fontFamily)
+	}`, *s.cfg.Font.Size, *s.cfg.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -174,7 +174,7 @@ func (s *Style) CodeStyle() int {
 	{
 		"font": {
 			"bold": false,
-			"size": 11,
+			"size": %f,
 			"family": "%s"
 		},
 		"alignment": {
@@ -187,7 +187,7 @@ func (s *Style) CodeStyle() int {
 			"pattern": 1,
 			"color": [ "#EEEEEE" ]
 		}
-	}`, s.fontFamily)
+	}`, *s.cfg.CodeStyle.Font.Size, *s.cfg.CodeStyle.Font.Family)
 	return s.newStyle(style)
 }
 
