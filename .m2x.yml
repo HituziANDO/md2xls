@@ -3,7 +3,8 @@ dst: dst/Document.xlsx
 font:
   family: 游ゴシック Regular
   size: 11
-codestyle:
+code:
   font:
     family: Arial
     size: 10.5
+max_num_of_characters_per_line: 120

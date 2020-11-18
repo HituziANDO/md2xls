@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode/utf8"
+
+	"golang.org/x/exp/utf8string"
 )
 
 type ComponentType int
@@ -89,11 +92,42 @@ type PlainText struct {
 }
 
 func (p PlainText) ToString() string {
-	return fmt.Sprintf("[%d, %d.%d.%d, %s] %s", p.Line, p.Chapter, p.Section, p.Term, p.Type(), p.Text)
+	return fmt.Sprintf("[%d, %d.%d.%d, %s] %s %d", p.Line, p.Chapter, p.Section, p.Term, p.Type(), p.Text, p.RuneCount())
 }
 
 func (_ PlainText) Type() ComponentType {
 	return TypePlainText
+}
+
+// テキストのバイト数を返す
+func (p PlainText) Bytes() int {
+	return len(p.Text)
+}
+
+// UTF-8の文字数を返す
+func (p PlainText) RuneCount() int {
+	return utf8.RuneCountInString(p.Text)
+}
+
+// 指定したUTF-8の文字数ごとにテキストを分割する
+func (p PlainText) SplitPer(count int) []string {
+	cnt := p.RuneCount()
+
+	var res []string
+
+	if cnt <= count {
+		return append(res, p.Text)
+	}
+
+	text := utf8string.NewString(p.Text)
+	rowNum := int(math.Floor(float64(cnt) / float64(count)))
+
+	for r := 0; r < rowNum; r++ {
+		str := text.Slice(count*r, count*(r+1))
+		res = append(res, str)
+	}
+
+	return res
 }
 
 type Table struct {

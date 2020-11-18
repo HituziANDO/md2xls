@@ -187,7 +187,7 @@ func (s *Style) CodeStyle() int {
 			"pattern": 1,
 			"color": [ "#EEEEEE" ]
 		}
-	}`, *s.cfg.CodeStyle.Font.Size, *s.cfg.CodeStyle.Font.Family)
+	}`, *s.cfg.Code.Font.Size, *s.cfg.Code.Font.Family)
 	return s.newStyle(style)
 }
 

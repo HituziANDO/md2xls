@@ -230,9 +230,15 @@ func (r *Renderer) Render(components []Component) {
 			rowCur = rowCur + code.RowNum() - 1
 		} else if comp.Type() == TypePlainText {
 			plainText := comp.(PlainText)
-			// TODO: 長いテキストを改行する
-			f.SetCellValue(sheetName, cellName, plainText.Text)
-			f.SetCellStyle(sheetName, cellName, cellName, stylist.PlainTextStyle())
+			// 長いテキストを改行する
+			// TODO: 英語のときは単語の途中で改行したくない
+			for _, str := range plainText.SplitPer(*cfg.MaxNumOfCharactersPerLine) {
+				cellName1, _ := excelize.JoinCellName("A", rowCur)
+				// TODO: &copy;や&trade;のような特殊文字の処理
+				f.SetCellValue(sheetName, cellName1, str)
+				f.SetCellStyle(sheetName, cellName1, cellName1, stylist.PlainTextStyle())
+				rowCur++
+			}
 		}
 
 		rowCur++

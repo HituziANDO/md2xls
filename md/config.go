@@ -17,10 +17,11 @@ type CodeStyle struct {
 }
 
 type Config struct {
-	Src       *string
-	Dst       *string
-	Font      *Font
-	CodeStyle *CodeStyle
+	Src                       *string
+	Dst                       *string
+	Font                      *Font
+	Code                      *CodeStyle
+	MaxNumOfCharactersPerLine *int `yaml:"max_num_of_characters_per_line"`
 }
 
 const cfgFile = ".m2x.yml"
@@ -33,7 +34,8 @@ func ReadConfig() Config {
 	codeFontFamily := "Arial"
 	codeFontSize := 10.5
 	code := CodeStyle{&Font{&codeFontFamily, &codeFontSize}}
-	defaultCfg := Config{&src, &dst, &Font{&fontFamily, &fontSize}, &code}
+	maxNumOfCharactersPerLine := 120
+	defaultCfg := Config{&src, &dst, &Font{&fontFamily, &fontSize}, &code, &maxNumOfCharactersPerLine}
 
 	buf, err := ioutil.ReadFile(cfgFile)
 	if err != nil {
@@ -61,19 +63,22 @@ func ReadConfig() Config {
 			cfg.Font.Size = defaultCfg.Font.Size
 		}
 	}
-	if cfg.CodeStyle == nil {
-		cfg.CodeStyle = defaultCfg.CodeStyle
+	if cfg.Code == nil {
+		cfg.Code = defaultCfg.Code
 	} else {
-		if cfg.CodeStyle.Font == nil {
-			cfg.CodeStyle.Font = defaultCfg.CodeStyle.Font
+		if cfg.Code.Font == nil {
+			cfg.Code.Font = defaultCfg.Code.Font
 		} else {
-			if cfg.CodeStyle.Font.Family == nil {
-				cfg.CodeStyle.Font.Family = defaultCfg.CodeStyle.Font.Family
+			if cfg.Code.Font.Family == nil {
+				cfg.Code.Font.Family = defaultCfg.Code.Font.Family
 			}
-			if cfg.CodeStyle.Font.Size == nil {
-				cfg.CodeStyle.Font.Size = defaultCfg.CodeStyle.Font.Size
+			if cfg.Code.Font.Size == nil {
+				cfg.Code.Font.Size = defaultCfg.Code.Font.Size
 			}
 		}
+	}
+	if cfg.MaxNumOfCharactersPerLine == nil {
+		cfg.MaxNumOfCharactersPerLine = defaultCfg.MaxNumOfCharactersPerLine
 	}
 
 	return cfg
