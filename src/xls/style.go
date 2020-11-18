@@ -1,6 +1,7 @@
-package md
+package xls
 
 import (
+	"../common"
 	"fmt"
 	"log"
 
@@ -11,7 +12,7 @@ import (
 // https://xuri.me/excelize/ja/style.html
 type Style struct {
 	f   *excelize.File
-	cfg *Config
+	cfg *common.Config
 }
 
 func (s *Style) H1Style() int {
@@ -27,7 +28,7 @@ func (s *Style) H1Style() int {
 			"vertical": "center",
 			"horizontal": "left"
 		}
-	}`, *s.cfg.Font.Family)
+	}`, *s.cfg.Text.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -47,7 +48,7 @@ func (s *Style) H2Style() int {
 			"vertical": "center",
 			"horizontal": "left"
 		}
-	}`, *s.cfg.Font.Family)
+	}`, *s.cfg.Text.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -64,7 +65,7 @@ func (s *Style) H3Style() int {
 			"vertical": "center",
 			"horizontal": "left"
 		}
-	}`, *s.cfg.Font.Family)
+	}`, *s.cfg.Text.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -81,7 +82,7 @@ func (s *Style) PlainTextStyle() int {
 			"vertical": "center",
 			"horizontal": "left"
 		}
-	}`, *s.cfg.Font.Size, *s.cfg.Font.Family)
+	}`, *s.cfg.Text.Font.Size, *s.cfg.Text.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -109,7 +110,7 @@ func (s *Style) TableCellStyle() int {
 			"pattern": 1,
 			"color": [ "#FFFFFF" ]
 		}
-	}`, *s.cfg.Font.Size, *s.cfg.Font.Family)
+	}`, *s.cfg.Text.Font.Size, *s.cfg.Text.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -137,7 +138,7 @@ func (s *Style) TableMergeCellStyle() int {
 			"pattern": 1,
 			"color": [ "#FFFFFF" ]
 		}
-	}`, *s.cfg.Font.Size, *s.cfg.Font.Family)
+	}`, *s.cfg.Text.Font.Size, *s.cfg.Text.Font.Family)
 	return s.newStyle(style)
 }
 
@@ -165,7 +166,7 @@ func (s *Style) TableHeaderStyle() int {
 			"pattern": 1,
 			"color": [ "#DDDDDD" ]
 		}
-	}`, *s.cfg.Font.Size, *s.cfg.Font.Family)
+	}`, *s.cfg.Text.Font.Size, *s.cfg.Text.Font.Family)
 	return s.newStyle(style)
 }
 

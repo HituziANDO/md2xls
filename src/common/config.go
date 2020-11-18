@@ -1,4 +1,4 @@
-package md
+package common
 
 import (
 	"io/ioutil"
@@ -7,19 +7,23 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-type Font struct {
+type FontStyle struct {
 	Family *string
 	Size   *float64
 }
 
+type TextStyle struct {
+	Font *FontStyle
+}
+
 type CodeStyle struct {
-	Font *Font
+	Font *FontStyle
 }
 
 type Config struct {
 	Src                       *string
 	Dst                       *string
-	Font                      *Font
+	Text                      *TextStyle
 	Code                      *CodeStyle
 	MaxNumOfCharactersPerLine *int `yaml:"max_num_of_characters_per_line"`
 }
@@ -29,13 +33,14 @@ const cfgFile = ".m2x.yml"
 func ReadConfig() Config {
 	src := "README.md"
 	dst := "README.xlsx"
-	fontFamily := "Meiryo UI"
-	fontSize := 11.0
+	textFontFamily := "Meiryo UI"
+	textFontSize := 11.0
+	textStyle := TextStyle{&FontStyle{&textFontFamily, &textFontSize}}
 	codeFontFamily := "Arial"
 	codeFontSize := 10.5
-	code := CodeStyle{&Font{&codeFontFamily, &codeFontSize}}
+	codeStyle := CodeStyle{&FontStyle{&codeFontFamily, &codeFontSize}}
 	maxNumOfCharactersPerLine := 120
-	defaultCfg := Config{&src, &dst, &Font{&fontFamily, &fontSize}, &code, &maxNumOfCharactersPerLine}
+	defaultCfg := Config{&src, &dst, &textStyle, &codeStyle, &maxNumOfCharactersPerLine}
 
 	buf, err := ioutil.ReadFile(cfgFile)
 	if err != nil {
@@ -53,14 +58,18 @@ func ReadConfig() Config {
 	if cfg.Dst == nil {
 		cfg.Dst = defaultCfg.Dst
 	}
-	if cfg.Font == nil {
-		cfg.Font = defaultCfg.Font
+	if cfg.Text == nil {
+		cfg.Text = defaultCfg.Text
 	} else {
-		if cfg.Font.Family == nil {
-			cfg.Font.Family = defaultCfg.Font.Family
-		}
-		if cfg.Font.Size == nil {
-			cfg.Font.Size = defaultCfg.Font.Size
+		if cfg.Text.Font == nil {
+			cfg.Text.Font = defaultCfg.Text.Font
+		} else {
+			if cfg.Text.Font.Family == nil {
+				cfg.Text.Font.Family = defaultCfg.Text.Font.Family
+			}
+			if cfg.Text.Font.Size == nil {
+				cfg.Text.Font.Size = defaultCfg.Text.Font.Size
+			}
 		}
 	}
 	if cfg.Code == nil {

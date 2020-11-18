@@ -1,21 +1,23 @@
 package main
 
 import (
-	"./md"
+	"./src/common"
+	"./src/md"
+	"./src/xls"
 	"fmt"
 	"io/ioutil"
 	"os"
 )
 
 func main() {
-	cfg := md.ReadConfig()
+	cfg := common.ReadConfig()
 
 	text := readFile(*cfg.Src)
 
 	var parser md.Parser
 	components := parser.Parse(text)
 
-	renderer := md.NewRenderer(cfg)
+	renderer := xls.NewRenderer(cfg)
 	renderer.Render(components)
 }
 

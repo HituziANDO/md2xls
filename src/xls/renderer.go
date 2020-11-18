@@ -1,6 +1,8 @@
-package md
+package xls
 
 import (
+	"../common"
+	"../md"
 	"bytes"
 	"fmt"
 	"image"
@@ -24,16 +26,16 @@ const sheetName = "doc"
 const cellWidth = 20
 
 type Renderer struct {
-	cfg Config
+	cfg common.Config
 }
 
-func NewRenderer(cfg Config) *Renderer {
+func NewRenderer(cfg common.Config) *Renderer {
 	r := new(Renderer)
 	r.cfg = cfg
 	return r
 }
 
-func (r *Renderer) Render(components []Component) {
+func (r *Renderer) Render(components []md.Component) {
 	cfg := r.cfg
 	srcDir := path.Dir(*cfg.Src)
 
@@ -60,21 +62,21 @@ func (r *Renderer) Render(components []Component) {
 			log.Fatal(err)
 		}
 
-		if comp.Type() == TypeH1 {
-			h1 := comp.(H1)
+		if comp.Type() == md.TypeH1 {
+			h1 := comp.(md.H1)
 			f.SetCellValue(sheetName, cellName, fmt.Sprintf("%d. %s", h1.Chapter, h1.Text))
 			f.SetCellStyle(sheetName, cellName, cellName, stylist.H1Style())
-		} else if comp.Type() == TypeH2 {
-			h2 := comp.(H2)
+		} else if comp.Type() == md.TypeH2 {
+			h2 := comp.(md.H2)
 			f.SetCellValue(sheetName, cellName, fmt.Sprintf("%d.%d. %s", h2.Chapter, h2.Section, h2.Text))
 			vcell, _ := excelize.JoinCellName("H", rowCur)
 			f.SetCellStyle(sheetName, cellName, vcell, stylist.H2Style())
-		} else if comp.Type() == TypeH3 {
-			h3 := comp.(H3)
+		} else if comp.Type() == md.TypeH3 {
+			h3 := comp.(md.H3)
 			f.SetCellValue(sheetName, cellName, fmt.Sprintf("%d.%d.%d. %s", h3.Chapter, h3.Section, h3.Term, h3.Text))
 			f.SetCellStyle(sheetName, cellName, cellName, stylist.H3Style())
-		} else if comp.Type() == TypeTable {
-			table := comp.(Table)
+		} else if comp.Type() == md.TypeTable {
+			table := comp.(md.Table)
 
 			headerStyle := stylist.TableHeaderStyle()
 			cellStyle := stylist.TableCellStyle()
@@ -135,8 +137,8 @@ func (r *Renderer) Render(components []Component) {
 				}
 				rowCur++
 			}
-		} else if comp.Type() == TypeImage {
-			img := comp.(Image)
+		} else if comp.Type() == md.TypeImage {
+			img := comp.(md.Image)
 
 			// TODO: Support svg
 
@@ -220,16 +222,16 @@ func (r *Renderer) Render(components []Component) {
 			//}`, scale, scale)); err != nil {
 			//	log.Fatal(err)
 			//}
-		} else if comp.Type() == TypeCode {
-			code := comp.(*Code)
+		} else if comp.Type() == md.TypeCode {
+			code := comp.(*md.Code)
 			cellName1, _ := excelize.JoinCellName("A", rowCur)
 			cellName2, _ := excelize.JoinCellName("H", rowCur+code.RowNum()-1)
 			f.MergeCell(sheetName, cellName1, cellName2)
 			f.SetCellValue(sheetName, cellName1, code.Text())
 			f.SetCellStyle(sheetName, cellName1, cellName1, stylist.CodeStyle())
 			rowCur = rowCur + code.RowNum() - 1
-		} else if comp.Type() == TypePlainText {
-			plainText := comp.(PlainText)
+		} else if comp.Type() == md.TypePlainText {
+			plainText := comp.(md.PlainText)
 			// 長いテキストを改行する
 			// TODO: 英語のときは単語の途中で改行したくない
 			for _, str := range plainText.SplitPer(*cfg.MaxNumOfCharactersPerLine) {

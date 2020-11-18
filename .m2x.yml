@@ -1,8 +1,9 @@
 src: sample/画面設計Sample.md
 dst: dst/Document.xlsx
-font:
-  family: 游ゴシック Regular
-  size: 11
+text:
+  font:
+    family: 游ゴシック Regular
+    size: 11
 code:
   font:
     family: Arial
