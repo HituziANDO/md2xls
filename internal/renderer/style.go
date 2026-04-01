@@ -165,6 +165,44 @@ func (s *Stylist) ListStyle() (int, error) {
 	})
 }
 
+func (s *Stylist) BlockquoteStyle() (int, error) {
+	return s.getOrCreate("blockquote", &excelize.Style{
+		Font: &excelize.Font{
+			Size:   s.cfg.Text.Size,
+			Family: s.cfg.Text.Family,
+			Italic: true,
+			Color:  "666666",
+		},
+		Border: []excelize.Border{
+			{Type: "left", Color: "AAAAAA", Style: 2},
+		},
+		Alignment: &excelize.Alignment{
+			WrapText: true,
+			Vertical: "center",
+		},
+		Fill: excelize.Fill{
+			Type:    "pattern",
+			Pattern: 1,
+			Color:   []string{"#F5F5F5"},
+		},
+	})
+}
+
+func (s *Stylist) HyperlinkStyle() (int, error) {
+	return s.getOrCreate("hyperlink", &excelize.Style{
+		Font: &excelize.Font{
+			Size:      s.cfg.Text.Size,
+			Family:    s.cfg.Text.Family,
+			Color:     "0563C1",
+			Underline: "single",
+		},
+		Alignment: &excelize.Alignment{
+			WrapText: false,
+			Vertical: "center",
+		},
+	})
+}
+
 func (s *Stylist) HRStyle() (int, error) {
 	return s.getOrCreate("hr", &excelize.Style{
 		Border: []excelize.Border{

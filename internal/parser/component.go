@@ -19,10 +19,17 @@ const (
 	TypeCode
 	TypeList
 	TypeHorizontalRule
+	TypeBlockquote
 )
 
 func (t ComponentType) String() string {
-	return [...]string{"h1", "h2", "h3", "plainText", "table", "image", "code", "list", "horizontalRule"}[t]
+	return [...]string{"h1", "h2", "h3", "plainText", "table", "image", "code", "list", "horizontalRule", "blockquote"}[t]
+}
+
+// LinkInfo holds a parsed Markdown link's text and URL.
+type LinkInfo struct {
+	Text string
+	URL  string
 }
 
 // Component is the interface implemented by all parsed Markdown elements.
@@ -80,6 +87,7 @@ func (H3) Type() ComponentType { return TypeH3 }
 
 type PlainText struct {
 	Text    string
+	Links   []LinkInfo
 	Chapter int
 	Section int
 	Term    int
@@ -98,6 +106,7 @@ func (p PlainText) RuneCount() int {
 }
 
 // SplitPer splits text into chunks of the given rune count.
+// It prefers splitting at word boundaries (spaces) to avoid breaking words.
 func (p PlainText) SplitPer(count int) []string {
 	runes := []rune(p.Text)
 	total := len(runes)
@@ -107,12 +116,31 @@ func (p PlainText) SplitPer(count int) []string {
 	}
 
 	var res []string
-	for i := 0; i < total; i += count {
-		end := i + count
-		if end > total {
-			end = total
+	start := 0
+	for start < total {
+		end := start + count
+		if end >= total {
+			res = append(res, string(runes[start:total]))
+			break
 		}
-		res = append(res, string(runes[i:end]))
+
+		// Try to find a word boundary (space) to split at
+		splitAt := -1
+		for i := end; i > start; i-- {
+			if runes[i] == ' ' {
+				splitAt = i
+				break
+			}
+		}
+
+		if splitAt > start {
+			res = append(res, string(runes[start:splitAt]))
+			start = splitAt + 1 // skip the space
+		} else {
+			// No space found; fall back to character-based split
+			res = append(res, string(runes[start:end]))
+			start = end
+		}
 	}
 	return res
 }
@@ -251,3 +279,28 @@ func (h HorizontalRule) ToString() string {
 }
 
 func (HorizontalRule) Type() ComponentType { return TypeHorizontalRule }
+
+// Blockquote represents a Markdown blockquote (lines starting with >).
+type Blockquote struct {
+	Lines   []string
+	Chapter int
+	Section int
+	Term    int
+	Line    int
+}
+
+func (b Blockquote) ToString() string {
+	return fmt.Sprintf("[%d, %d.%d.%d, %s] %d lines", b.Line, b.Chapter, b.Section, b.Term, b.Type(), len(b.Lines))
+}
+
+func (Blockquote) Type() ComponentType { return TypeBlockquote }
+
+// Text returns all blockquote lines joined with newlines.
+func (b Blockquote) Text() string {
+	return strings.Join(b.Lines, "\n")
+}
+
+// RowNum returns the number of Excel rows needed (lines + top/bottom padding).
+func (b Blockquote) RowNum() int {
+	return len(b.Lines) + 2
+}

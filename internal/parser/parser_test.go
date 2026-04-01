@@ -644,6 +644,7 @@ func TestComponentType_String(t *testing.T) {
 		{TypeCode, "code"},
 		{TypeList, "list"},
 		{TypeHorizontalRule, "horizontalRule"},
+		{TypeBlockquote, "blockquote"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
@@ -683,6 +684,9 @@ func TestComponent_Type(t *testing.T) {
 	}
 	if (HorizontalRule{}).Type() != TypeHorizontalRule {
 		t.Error("HorizontalRule.Type() != TypeHorizontalRule")
+	}
+	if (Blockquote{}).Type() != TypeBlockquote {
+		t.Error("Blockquote.Type() != TypeBlockquote")
 	}
 }
 
@@ -832,5 +836,320 @@ Some text
 		if types[i] != et {
 			t.Errorf("component[%d]: got %s, want %s", i, types[i], et)
 		}
+	}
+}
+
+// --- Blockquote tests ---
+
+func TestParse_Blockquote(t *testing.T) {
+	input := "> This is a quote\n> Second line"
+	comps := Parse(input)
+
+	var bq Blockquote
+	found := false
+	for _, c := range comps {
+		if b, ok := c.(Blockquote); ok {
+			bq = b
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected a Blockquote component")
+	}
+	if len(bq.Lines) != 2 {
+		t.Fatalf("Lines: got %d, want 2", len(bq.Lines))
+	}
+	if bq.Lines[0] != "This is a quote" {
+		t.Errorf("Lines[0]: got %q, want %q", bq.Lines[0], "This is a quote")
+	}
+	if bq.Lines[1] != "Second line" {
+		t.Errorf("Lines[1]: got %q, want %q", bq.Lines[1], "Second line")
+	}
+}
+
+func TestParse_BlockquoteMultiple(t *testing.T) {
+	input := "> Quote 1\n\n> Quote 2"
+	comps := Parse(input)
+
+	var bqs []Blockquote
+	for _, c := range comps {
+		if b, ok := c.(Blockquote); ok {
+			bqs = append(bqs, b)
+		}
+	}
+	if len(bqs) != 2 {
+		t.Fatalf("expected 2 Blockquote components, got %d", len(bqs))
+	}
+	if bqs[0].Lines[0] != "Quote 1" {
+		t.Errorf("first blockquote: got %q, want %q", bqs[0].Lines[0], "Quote 1")
+	}
+	if bqs[1].Lines[0] != "Quote 2" {
+		t.Errorf("second blockquote: got %q, want %q", bqs[1].Lines[0], "Quote 2")
+	}
+}
+
+func TestParse_BlockquoteNoSpace(t *testing.T) {
+	input := ">no space"
+	comps := Parse(input)
+	var bq Blockquote
+	for _, c := range comps {
+		if b, ok := c.(Blockquote); ok {
+			bq = b
+			break
+		}
+	}
+	if len(bq.Lines) != 1 {
+		t.Fatalf("Lines: got %d, want 1", len(bq.Lines))
+	}
+	if bq.Lines[0] != "no space" {
+		t.Errorf("Lines[0]: got %q, want %q", bq.Lines[0], "no space")
+	}
+}
+
+func TestParse_BlockquoteEmpty(t *testing.T) {
+	input := ">"
+	comps := Parse(input)
+	var bq Blockquote
+	for _, c := range comps {
+		if b, ok := c.(Blockquote); ok {
+			bq = b
+			break
+		}
+	}
+	if len(bq.Lines) != 1 {
+		t.Fatalf("Lines: got %d, want 1", len(bq.Lines))
+	}
+	if bq.Lines[0] != "" {
+		t.Errorf("Lines[0]: got %q, want empty", bq.Lines[0])
+	}
+}
+
+func TestParse_BlockquoteFlushAtEnd(t *testing.T) {
+	input := "text\n> quote line"
+	comps := Parse(input)
+	found := false
+	for _, c := range comps {
+		if _, ok := c.(Blockquote); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected Blockquote to be flushed at end of input")
+	}
+}
+
+func TestParse_BlockquoteStripsFormatting(t *testing.T) {
+	input := "> **bold** and *italic*"
+	comps := Parse(input)
+	var bq Blockquote
+	for _, c := range comps {
+		if b, ok := c.(Blockquote); ok {
+			bq = b
+			break
+		}
+	}
+	if bq.Lines[0] != "bold and italic" {
+		t.Errorf("Lines[0]: got %q, want %q", bq.Lines[0], "bold and italic")
+	}
+}
+
+func TestBlockquote_Text(t *testing.T) {
+	bq := Blockquote{Lines: []string{"line1", "line2", "line3"}}
+	want := "line1\nline2\nline3"
+	if bq.Text() != want {
+		t.Errorf("Text: got %q, want %q", bq.Text(), want)
+	}
+}
+
+func TestBlockquote_RowNum(t *testing.T) {
+	bq := Blockquote{Lines: []string{"a", "b"}}
+	if bq.RowNum() != 4 {
+		t.Errorf("RowNum: got %d, want 4 (len(Lines)+2)", bq.RowNum())
+	}
+}
+
+// --- Link extraction tests ---
+
+func TestExtractLinks(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantCount int
+		wantText  string
+		wantURL   string
+	}{
+		{"single link", "[click](http://example.com)", 1, "click", "http://example.com"},
+		{"no link", "plain text", 0, "", ""},
+		{"multiple links", "[a](url1) and [b](url2)", 2, "a", "url1"},
+		{"link in text", "See [docs](http://docs.example.com) for more", 1, "docs", "http://docs.example.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			links := ExtractLinks(tt.input)
+			if len(links) != tt.wantCount {
+				t.Fatalf("got %d links, want %d", len(links), tt.wantCount)
+			}
+			if tt.wantCount > 0 {
+				if links[0].Text != tt.wantText {
+					t.Errorf("Text: got %q, want %q", links[0].Text, tt.wantText)
+				}
+				if links[0].URL != tt.wantURL {
+					t.Errorf("URL: got %q, want %q", links[0].URL, tt.wantURL)
+				}
+			}
+		})
+	}
+}
+
+func TestParse_PlainTextWithLinks(t *testing.T) {
+	input := "Visit [example](http://example.com) for info"
+	comps := Parse(input)
+	pt, ok := comps[0].(PlainText)
+	if !ok {
+		t.Fatalf("expected PlainText, got %T", comps[0])
+	}
+	if pt.Text != "Visit example for info" {
+		t.Errorf("Text: got %q, want %q", pt.Text, "Visit example for info")
+	}
+	if len(pt.Links) != 1 {
+		t.Fatalf("Links: got %d, want 1", len(pt.Links))
+	}
+	if pt.Links[0].URL != "http://example.com" {
+		t.Errorf("Links[0].URL: got %q, want %q", pt.Links[0].URL, "http://example.com")
+	}
+	if pt.Links[0].Text != "example" {
+		t.Errorf("Links[0].Text: got %q, want %q", pt.Links[0].Text, "example")
+	}
+}
+
+// --- HTML entity decoding tests ---
+
+func TestStripInlineFormatting_HTMLEntities(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"amp", "A &amp; B", "A & B"},
+		{"lt gt", "&lt;div&gt;", "<div>"},
+		{"copy", "&copy; 2024", "\u00a9 2024"},
+		{"nbsp", "hello&nbsp;world", "hello\u00a0world"},
+		{"numeric", "&#169; symbol", "\u00a9 symbol"},
+		{"mixed", "**bold** &amp; *italic*", "bold & italic"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := StripInlineFormatting(tt.input)
+			if got != tt.want {
+				t.Errorf("StripInlineFormatting(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParse_HeadingHTMLEntities(t *testing.T) {
+	input := "# Title &amp; Subtitle"
+	comps := Parse(input)
+	h1, ok := comps[0].(H1)
+	if !ok {
+		t.Fatalf("expected H1, got %T", comps[0])
+	}
+	if h1.Text != "Title & Subtitle" {
+		t.Errorf("Text: got %q, want %q", h1.Text, "Title & Subtitle")
+	}
+}
+
+func TestParse_TableHTMLEntities(t *testing.T) {
+	input := "| A &amp; B | C |\n| --- | --- |\n| &lt;tag&gt; | D |"
+	comps := Parse(input)
+	var table *Table
+	for _, c := range comps {
+		if tp, ok := c.(*Table); ok {
+			table = tp
+			break
+		}
+	}
+	if table == nil {
+		t.Fatal("expected a Table component")
+	}
+	if table.Header[0] != "A & B" {
+		t.Errorf("Header[0]: got %q, want %q", table.Header[0], "A & B")
+	}
+	if table.Data[0][0] != "<tag>" {
+		t.Errorf("Data[0][0]: got %q, want %q", table.Data[0][0], "<tag>")
+	}
+}
+
+// --- Word-boundary SplitPer tests ---
+
+func TestPlainText_SplitPer_WordBoundary(t *testing.T) {
+	pt := PlainText{Text: "The quick brown fox jumps over the lazy dog"}
+	result := pt.SplitPer(15)
+	// Should split at word boundaries
+	expected := []string{"The quick brown", "fox jumps over", "the lazy dog"}
+	if len(result) != len(expected) {
+		t.Fatalf("SplitPer: got %d chunks %v, want %d chunks %v", len(result), result, len(expected), expected)
+	}
+	for i, s := range result {
+		if s != expected[i] {
+			t.Errorf("SplitPer[%d]: got %q, want %q", i, s, expected[i])
+		}
+	}
+}
+
+func TestPlainText_SplitPer_WordBoundaryLongWord(t *testing.T) {
+	// When a word exceeds the limit, fall back to character-based split
+	pt := PlainText{Text: "abcdefghijklmnop short"}
+	result := pt.SplitPer(10)
+	expected := []string{"abcdefghij", "klmnop", "short"}
+	if len(result) != len(expected) {
+		t.Fatalf("SplitPer: got %d chunks %v, want %d chunks %v", len(result), result, len(expected), expected)
+	}
+	for i, s := range result {
+		if s != expected[i] {
+			t.Errorf("SplitPer[%d]: got %q, want %q", i, s, expected[i])
+		}
+	}
+}
+
+func TestPlainText_SplitPer_WordBoundaryCJK(t *testing.T) {
+	// CJK text without spaces should still split by characters
+	pt := PlainText{Text: "あいうえおかきくけこ"}
+	result := pt.SplitPer(4)
+	expected := []string{"あいうえ", "おかきく", "けこ"}
+	if len(result) != len(expected) {
+		t.Fatalf("SplitPer: got %d chunks %v, want %d chunks %v", len(result), result, len(expected), expected)
+	}
+	for i, s := range result {
+		if s != expected[i] {
+			t.Errorf("SplitPer[%d]: got %q, want %q", i, s, expected[i])
+		}
+	}
+}
+
+func TestPlainText_SplitPer_WordBoundaryMixed(t *testing.T) {
+	pt := PlainText{Text: "Hello world test"}
+	result := pt.SplitPer(10)
+	// "Hello" + space + "world" = 11, so split at space after "Hello"
+	// Then "world test" = 10, fits in one chunk
+	expected := []string{"Hello", "world test"}
+	if len(result) != len(expected) {
+		t.Fatalf("SplitPer: got %d chunks %v, want %d chunks %v", len(result), result, len(expected), expected)
+	}
+	for i, s := range result {
+		if s != expected[i] {
+			t.Errorf("SplitPer[%d]: got %q, want %q", i, s, expected[i])
+		}
+	}
+}
+
+func TestBlockquote_ToString(t *testing.T) {
+	bq := Blockquote{Lines: []string{"line1"}, Chapter: 1, Section: 2, Term: 3, Line: 5}
+	got := bq.ToString()
+	if !strings.Contains(got, "blockquote") || !strings.Contains(got, "1 lines") {
+		t.Errorf("ToString: got %q", got)
 	}
 }

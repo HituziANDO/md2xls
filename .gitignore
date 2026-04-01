@@ -14,8 +14,9 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
-sample
+#sample
 dst
 tmp
 dist/
 md2xls
+.claude/settings.local.json

@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"html"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,20 +22,34 @@ var (
 	ulRegex = regexp.MustCompile(`^(\s*)([-*+])\s+(.+)`)
 	// Ordered list: 1. item, 2. item (with optional leading spaces)
 	olRegex = regexp.MustCompile(`^(\s*)(\d+)\.\s+(.+)`)
+	// Blockquote: > text
+	blockquoteRegex = regexp.MustCompile(`^>\s?(.*)`)
 	// Inline formatting patterns for stripping
 	boldRegex       = regexp.MustCompile(`\*\*(.+?)\*\*`)
 	italicRegex     = regexp.MustCompile(`\*(.+?)\*`)
 	inlineCodeRegex = regexp.MustCompile("`" + `([^` + "`" + `]+)` + "`")
-	linkRegex       = regexp.MustCompile(`\[([^\]]+)\]\([^)]+\)`)
+	linkRegex       = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 )
 
-// StripInlineFormatting removes markdown inline formatting from text.
+// StripInlineFormatting removes markdown inline formatting from text
+// and decodes HTML entities.
 func StripInlineFormatting(s string) string {
 	s = boldRegex.ReplaceAllString(s, "$1")
 	s = italicRegex.ReplaceAllString(s, "$1")
 	s = inlineCodeRegex.ReplaceAllString(s, "$1")
 	s = linkRegex.ReplaceAllString(s, "$1")
+	s = html.UnescapeString(s)
 	return s
+}
+
+// ExtractLinks returns all Markdown links found in the string.
+func ExtractLinks(s string) []LinkInfo {
+	matches := linkRegex.FindAllStringSubmatch(s, -1)
+	var links []LinkInfo
+	for _, m := range matches {
+		links = append(links, LinkInfo{Text: m[1], URL: m[2]})
+	}
+	return links
 }
 
 // Parse converts Markdown text into a slice of Components.
@@ -49,11 +64,19 @@ func Parse(text string) []Component {
 	tableRow := 0
 	var code *Code
 	var list *List
+	var blockquote *Blockquote
 
 	flushList := func() {
 		if list != nil {
 			res = append(res, *list)
 			list = nil
+		}
+	}
+
+	flushBlockquote := func() {
+		if blockquote != nil {
+			res = append(res, *blockquote)
+			blockquote = nil
 		}
 	}
 
@@ -115,13 +138,31 @@ func Parse(text string) []Component {
 		// If we were collecting list items and this line isn't a list item, flush
 		flushList()
 
+		// Blockquote: lines starting with >
+		if m := blockquoteRegex.FindStringSubmatch(line); m != nil {
+			tableRow = 0
+			table = nil
+			if blockquote == nil {
+				blockquote = &Blockquote{
+					Chapter: chapter,
+					Section: section,
+					Term:    term,
+					Line:    lineNum,
+				}
+			}
+			blockquote.Lines = append(blockquote.Lines, StripInlineFormatting(strings.TrimSpace(m[1])))
+			continue
+		}
+		// If we were collecting blockquote lines and this line isn't one, flush
+		flushBlockquote()
+
 		// Headings: check H3 before H2 before H1 to avoid prefix matching
 		if m := h3Regex.FindStringSubmatch(line); m != nil {
 			term++
 			tableRow = 0
 			table = nil
 			res = append(res, H3{
-				Text:    strings.TrimSpace(m[1]),
+				Text:    html.UnescapeString(strings.TrimSpace(m[1])),
 				Line:    lineNum,
 				Chapter: chapter,
 				Section: section,
@@ -133,7 +174,7 @@ func Parse(text string) []Component {
 			tableRow = 0
 			table = nil
 			res = append(res, H2{
-				Text:    strings.TrimSpace(m[1]),
+				Text:    html.UnescapeString(strings.TrimSpace(m[1])),
 				Line:    lineNum,
 				Chapter: chapter,
 				Section: section,
@@ -145,7 +186,7 @@ func Parse(text string) []Component {
 			tableRow = 0
 			table = nil
 			res = append(res, H1{
-				Text:    strings.TrimSpace(m[1]),
+				Text:    html.UnescapeString(strings.TrimSpace(m[1])),
 				Line:    lineNum,
 				Chapter: chapter,
 			})
@@ -214,9 +255,12 @@ func Parse(text string) []Component {
 		} else {
 			tableRow = 0
 			table = nil
-			str := StripInlineFormatting(strings.TrimSpace(line))
+			trimmed := strings.TrimSpace(line)
+			links := ExtractLinks(trimmed)
+			str := StripInlineFormatting(trimmed)
 			res = append(res, PlainText{
 				Text:    str,
+				Links:   links,
 				Line:    lineNum,
 				Chapter: chapter,
 				Section: section,
@@ -225,8 +269,9 @@ func Parse(text string) []Component {
 		}
 	}
 
-	// Flush any remaining list
+	// Flush any remaining list or blockquote
 	flushList()
+	flushBlockquote()
 
 	return res
 }
@@ -244,7 +289,7 @@ func splitTableRow(s string) []string {
 	parts := strings.Split(s, "|")
 	cells := make([]string, len(parts))
 	for i, p := range parts {
-		cells[i] = strings.TrimSpace(p)
+		cells[i] = html.UnescapeString(strings.TrimSpace(p))
 	}
 	return cells
 }

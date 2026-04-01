@@ -8,7 +8,7 @@ A CLI tool that converts Markdown files to Excel (.xlsx) documents.
 
 md2xls reads a Markdown file, parses its structure, and produces a styled Excel workbook. This is useful when you need to share design documents, specifications, or other technical content as Excel files -- a common requirement in organizations where Markdown is used for authoring but Excel is expected for delivery or review.
 
-The tool preserves document structure including headings with auto-numbering, tables, code blocks, images, and lists, rendering each element with appropriate Excel styling.
+The tool preserves document structure including headings with auto-numbering, tables, code blocks, blockquotes, images, links (as Excel hyperlinks), and lists, rendering each element with appropriate Excel styling. HTML entities are automatically decoded.
 
 ## Installation
 
@@ -153,6 +153,17 @@ fmt.Println("Hello")
 ```
 ````
 
+### Blockquotes
+
+Blockquotes are rendered in a merged cell region (columns A--H) with an italic font, a left border, and a light gray background.
+
+```markdown
+> This is a blockquote.
+> It can span multiple lines.
+```
+
+Consecutive lines starting with `>` are grouped into a single blockquote. A blank line between `>` lines creates separate blockquotes.
+
 ### Images
 
 Both HTML `<img>` tags and Markdown image syntax are supported:
@@ -185,27 +196,42 @@ Bullet lists and numbered lists are supported, including nesting:
 
 Horizontal rules (`---`, `***`, `___`) are rendered as a thin bottom-border line.
 
+### Links
+
+Markdown links are rendered as Excel hyperlinks with blue underlined text:
+
+```markdown
+[Click here](https://example.com)
+```
+
+When a line contains one or more links, the first link's URL is set as the cell's hyperlink. The display text shows the link text with formatting stripped.
+
 ### Inline formatting
 
 Inline Markdown formatting is stripped to plain text in the output:
 
 - `**bold**` and `*italic*` are converted to their inner text
 - `` `inline code` `` is converted to plain text
-- `[link text](url)` is converted to the link text only
+- `[link text](url)` is displayed as the link text (with the URL preserved as an Excel hyperlink)
+
+### HTML entities
+
+HTML entities are automatically decoded in all text content (headings, body text, table cells, blockquotes, and list items):
+
+- `&amp;` becomes `&`, `&lt;` becomes `<`, `&gt;` becomes `>`
+- Named entities: `&copy;` becomes ©, `&trade;` becomes ™, etc.
+- Numeric entities: `&#169;` becomes ©
 
 ### Text wrapping
 
-Plain text lines that exceed `max_num_of_characters_per_line` (default: 120) are split into multiple rows at the character boundary (UTF-8 rune-based).
+Plain text lines that exceed `max_num_of_characters_per_line` (default: 120) are split into multiple rows. The splitting is word-boundary-aware: it prefers breaking at spaces to avoid splitting words mid-way. For CJK text or text without spaces, it falls back to character-based (UTF-8 rune-based) splitting.
 
 ## Unsupported Features
 
 The following Markdown features are not currently supported:
 
 - Headings beyond H3 (`####` and deeper)
-- Blockquotes (`>`)
 - SVG images
-- HTML entities (`&copy;`, `&trade;`, etc.)
-- Word-boundary-aware line wrapping (splitting is character-based)
 - Nested tables
 - Task lists / checkboxes
 

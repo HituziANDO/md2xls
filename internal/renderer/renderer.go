@@ -90,6 +90,8 @@ func (r *Renderer) Render(components []parser.Component) error {
 			rowCur, err = renderCode(f, stylist, rowCur, c)
 		case parser.List:
 			rowCur, err = renderList(f, stylist, rowCur, c)
+		case parser.Blockquote:
+			rowCur, err = renderBlockquote(f, stylist, rowCur, c)
 		case parser.HorizontalRule:
 			rowCur, err = renderHR(f, stylist, rowCur)
 		case parser.PlainText:
@@ -344,15 +346,45 @@ func renderHR(f *excelize.File, stylist *Stylist, row int) (int, error) {
 	return row + 1, nil
 }
 
+func renderBlockquote(f *excelize.File, stylist *Stylist, row int, bq parser.Blockquote) (int, error) {
+	style, err := stylist.BlockquoteStyle()
+	if err != nil {
+		return row, err
+	}
+	rows := bq.RowNum()
+	cellName1, _ := excelize.JoinCellName("A", row)
+	cellName2, _ := excelize.JoinCellName("H", row+rows-1)
+	f.MergeCell(sheetName, cellName1, cellName2)
+	f.SetCellValue(sheetName, cellName1, bq.Text())
+	f.SetCellStyle(sheetName, cellName1, cellName2, style)
+	return row + rows, nil
+}
+
 func renderPlainText(f *excelize.File, stylist *Stylist, row int, pt parser.PlainText, maxChars int) (int, error) {
 	style, err := stylist.PlainTextStyle()
 	if err != nil {
 		return row, err
 	}
-	for _, str := range pt.SplitPer(maxChars) {
+
+	hasLink := len(pt.Links) > 0
+	var linkStyle int
+	if hasLink {
+		linkStyle, err = stylist.HyperlinkStyle()
+		if err != nil {
+			return row, err
+		}
+	}
+
+	for i, str := range pt.SplitPer(maxChars) {
 		cellName, _ := excelize.JoinCellName("A", row)
 		f.SetCellValue(sheetName, cellName, str)
-		f.SetCellStyle(sheetName, cellName, cellName, style)
+
+		if i == 0 && hasLink {
+			f.SetCellHyperLink(sheetName, cellName, pt.Links[0].URL, "External")
+			f.SetCellStyle(sheetName, cellName, cellName, linkStyle)
+		} else {
+			f.SetCellStyle(sheetName, cellName, cellName, style)
+		}
 		row++
 	}
 	return row, nil
