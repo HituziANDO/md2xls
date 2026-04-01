@@ -1,0 +1,48 @@
+version: 2
+
+project_name: md2xls
+
+builds:
+  - main: ./main.go
+    binary: md2xls
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+  groups:
+    - title: Features
+      regexp: "^.*feat.*:+.*$"
+      order: 0
+    - title: Bug Fixes
+      regexp: "^.*fix.*:+.*$"
+      order: 1
+    - title: Others
+      order: 999
+
+release:
+  disable: true
