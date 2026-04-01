@@ -82,6 +82,12 @@ func (r *Renderer) Render(components []parser.Component) error {
 			rowCur, err = renderH2(f, stylist, cellName, rowCur, c, cfg.HeadingNumber)
 		case parser.H3:
 			rowCur, err = renderH3(f, stylist, cellName, rowCur, c, cfg.HeadingNumber)
+		case parser.H4:
+			rowCur, err = renderH4(f, stylist, cellName, rowCur, c, cfg.HeadingNumber)
+		case parser.H5:
+			rowCur, err = renderH5(f, stylist, cellName, rowCur, c)
+		case parser.H6:
+			rowCur, err = renderH6(f, stylist, cellName, rowCur, c)
 		case *parser.Table:
 			rowCur, err = renderTable(f, stylist, rowCur, c)
 		case parser.Image:
@@ -133,6 +139,40 @@ func renderH3(f *excelize.File, stylist *Stylist, cellName string, row int, h pa
 	return row + 1, nil
 }
 
+func renderH4(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H4, headingNumber bool) (int, error) {
+	style, err := stylist.H4Style()
+	if err != nil {
+		return row, err
+	}
+	text := h.Text
+	if headingNumber {
+		text = fmt.Sprintf("%d.%d.%d.%d. %s", h.Chapter, h.Section, h.Term, h.Item, h.Text)
+	}
+	f.SetCellValue(sheetName, cellName, text)
+	f.SetCellStyle(sheetName, cellName, cellName, style)
+	return row + 1, nil
+}
+
+func renderH5(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H5) (int, error) {
+	style, err := stylist.H5Style()
+	if err != nil {
+		return row, err
+	}
+	f.SetCellValue(sheetName, cellName, h.Text)
+	f.SetCellStyle(sheetName, cellName, cellName, style)
+	return row + 1, nil
+}
+
+func renderH6(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H6) (int, error) {
+	style, err := stylist.H6Style()
+	if err != nil {
+		return row, err
+	}
+	f.SetCellValue(sheetName, cellName, h.Text)
+	f.SetCellStyle(sheetName, cellName, cellName, style)
+	return row + 1, nil
+}
+
 func renderH1(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H1, headingNumber bool) (int, error) {
 	style, err := stylist.H1Style()
 	if err != nil {
@@ -163,19 +203,6 @@ func renderH2(f *excelize.File, stylist *Stylist, cellName string, row int, h pa
 }
 
 func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Table) (int, error) {
-	headerStyle, err := stylist.TableHeaderStyle()
-	if err != nil {
-		return row, err
-	}
-	cellStyle, err := stylist.TableCellStyle()
-	if err != nil {
-		return row, err
-	}
-	mergeStyle, err := stylist.TableMergeCellStyle()
-	if err != nil {
-		return row, err
-	}
-
 	maxBytes := table.MaxColDataBytes()
 
 	colNum := 1
@@ -183,6 +210,15 @@ func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Tabl
 
 	// Header row
 	for i, cell := range table.Header {
+		align := "center"
+		if i < len(table.Alignments) {
+			align = table.Alignments[i]
+		}
+		hdrStyle, err := stylist.TableHeaderStyleAligned(align)
+		if err != nil {
+			return row, err
+		}
+
 		colName, _ := excelize.ColumnNumberToName(colNum + colOffset)
 		cellName, _ := excelize.JoinCellName(colName, row)
 		f.SetCellValue(sheetName, cellName, cell)
@@ -191,10 +227,10 @@ func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Tabl
 			colName2, _ := excelize.ColumnNumberToName(colNum + colOffset + 1)
 			cellName2, _ := excelize.JoinCellName(colName2, row)
 			f.MergeCell(sheetName, cellName, cellName2)
-			f.SetCellStyle(sheetName, cellName, cellName2, headerStyle)
+			f.SetCellStyle(sheetName, cellName, cellName2, hdrStyle)
 			colOffset++
 		} else {
-			f.SetCellStyle(sheetName, cellName, cellName, headerStyle)
+			f.SetCellStyle(sheetName, cellName, cellName, hdrStyle)
 		}
 		colOffset++
 	}
@@ -204,22 +240,35 @@ func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Tabl
 	for _, rows := range table.Data {
 		colOffset = 0
 		for i, cell := range rows {
+			align := "center"
+			if i < len(table.Alignments) {
+				align = table.Alignments[i]
+			}
+
 			colName, _ := excelize.ColumnNumberToName(colNum + colOffset)
 			cellName, _ := excelize.JoinCellName(colName, row)
 			f.SetCellValue(sheetName, cellName, cell)
 
 			if i < len(maxBytes) && maxBytes[i] > 80 {
+				mrgStyle, err := stylist.TableMergeCellStyleAligned(align)
+				if err != nil {
+					return row, err
+				}
 				colName2, _ := excelize.ColumnNumberToName(colNum + colOffset + 1)
 				cellName2, _ := excelize.JoinCellName(colName2, row)
 				f.MergeCell(sheetName, cellName, cellName2)
-				f.SetCellStyle(sheetName, cellName, cellName2, mergeStyle)
+				f.SetCellStyle(sheetName, cellName, cellName2, mrgStyle)
 				h, _ := f.GetRowHeight(sheetName, row)
 				if cellWidth > 0 {
 					f.SetRowHeight(sheetName, row, h*float64(maxBytes[i]/cellWidth))
 				}
 				colOffset++
 			} else {
-				f.SetCellStyle(sheetName, cellName, cellName, cellStyle)
+				cStyle, err := stylist.TableCellStyleAligned(align)
+				if err != nil {
+					return row, err
+				}
+				f.SetCellStyle(sheetName, cellName, cellName, cStyle)
 			}
 			colOffset++
 		}
@@ -320,7 +369,13 @@ func renderList(f *excelize.File, stylist *Stylist, row int, list parser.List) (
 
 		prefix := strings.Repeat("    ", item.Indent)
 		var text string
-		if item.Ordered {
+		if item.Checked != nil {
+			if *item.Checked {
+				text = fmt.Sprintf("%s☑ %s", prefix, item.Text)
+			} else {
+				text = fmt.Sprintf("%s☐ %s", prefix, item.Text)
+			}
+		} else if item.Ordered {
 			text = fmt.Sprintf("%s%d. %s", prefix, item.Number, item.Text)
 		} else {
 			text = fmt.Sprintf("%s• %s", prefix, item.Text)
@@ -360,10 +415,51 @@ func renderBlockquote(f *excelize.File, stylist *Stylist, row int, bq parser.Blo
 	return row + rows, nil
 }
 
+func hasRichFormatting(segments []parser.RichTextSegment) bool {
+	for _, s := range segments {
+		if s.Bold || s.Italic {
+			return true
+		}
+	}
+	return false
+}
+
+func toRichTextRuns(segments []parser.RichTextSegment, cfg config.Config) []excelize.RichTextRun {
+	var runs []excelize.RichTextRun
+	for _, seg := range segments {
+		runs = append(runs, excelize.RichTextRun{
+			Font: &excelize.Font{
+				Size:   cfg.Text.Size,
+				Family: cfg.Text.Family,
+				Bold:   seg.Bold,
+				Italic: seg.Italic,
+			},
+			Text: seg.Text,
+		})
+	}
+	return runs
+}
+
 func renderPlainText(f *excelize.File, stylist *Stylist, row int, pt parser.PlainText, maxChars int) (int, error) {
 	style, err := stylist.PlainTextStyle()
 	if err != nil {
 		return row, err
+	}
+
+	// Use rich text rendering if text fits in one line and has formatting
+	if pt.RuneCount() <= maxChars && hasRichFormatting(pt.RichText) {
+		cellName, _ := excelize.JoinCellName("A", row)
+		f.SetCellRichText(sheetName, cellName, toRichTextRuns(pt.RichText, stylist.cfg))
+		f.SetCellStyle(sheetName, cellName, cellName, style)
+		if len(pt.Links) > 0 {
+			linkStyle, err := stylist.HyperlinkStyle()
+			if err != nil {
+				return row, err
+			}
+			f.SetCellHyperLink(sheetName, cellName, pt.Links[0].URL, "External")
+			f.SetCellStyle(sheetName, cellName, cellName, linkStyle)
+		}
+		return row + 1, nil
 	}
 
 	hasLink := len(pt.Links) > 0

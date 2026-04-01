@@ -638,6 +638,9 @@ func TestComponentType_String(t *testing.T) {
 		{TypeH1, "h1"},
 		{TypeH2, "h2"},
 		{TypeH3, "h3"},
+		{TypeH4, "h4"},
+		{TypeH5, "h5"},
+		{TypeH6, "h6"},
 		{TypePlainText, "plainText"},
 		{TypeTable, "table"},
 		{TypeImage, "image"},
@@ -666,6 +669,15 @@ func TestComponent_Type(t *testing.T) {
 	}
 	if (H3{}).Type() != TypeH3 {
 		t.Error("H3.Type() != TypeH3")
+	}
+	if (H4{}).Type() != TypeH4 {
+		t.Error("H4.Type() != TypeH4")
+	}
+	if (H5{}).Type() != TypeH5 {
+		t.Error("H5.Type() != TypeH5")
+	}
+	if (H6{}).Type() != TypeH6 {
+		t.Error("H6.Type() != TypeH6")
 	}
 	if (PlainText{}).Type() != TypePlainText {
 		t.Error("PlainText.Type() != TypePlainText")
@@ -713,6 +725,78 @@ func TestH3_ToString(t *testing.T) {
 	got := h.ToString()
 	if !strings.Contains(got, "Sub") || !strings.Contains(got, "h3") {
 		t.Errorf("ToString: got %q", got)
+	}
+}
+
+// --- H4/H5/H6 tests ---
+
+func TestParse_H4(t *testing.T) {
+	comps := Parse("# Ch\n## Sec\n### Sub\n#### Item")
+	if len(comps) != 4 {
+		t.Fatalf("expected 4 components, got %d", len(comps))
+	}
+	h4, ok := comps[3].(H4)
+	if !ok {
+		t.Fatalf("expected H4, got %T", comps[3])
+	}
+	if h4.Text != "Item" {
+		t.Errorf("Text: got %q, want %q", h4.Text, "Item")
+	}
+	if h4.Item != 1 {
+		t.Errorf("Item: got %d, want 1", h4.Item)
+	}
+}
+
+func TestParse_H5(t *testing.T) {
+	comps := Parse("# Ch\n## Sec\n### Sub\n#### Item\n##### SubItem")
+	h5, ok := comps[4].(H5)
+	if !ok {
+		t.Fatalf("expected H5, got %T", comps[4])
+	}
+	if h5.SubItem != 1 {
+		t.Errorf("SubItem: got %d, want 1", h5.SubItem)
+	}
+}
+
+func TestParse_H6(t *testing.T) {
+	comps := Parse("# Ch\n## Sec\n### Sub\n#### Item\n##### SubItem\n###### Detail")
+	h6, ok := comps[5].(H6)
+	if !ok {
+		t.Fatalf("expected H6, got %T", comps[5])
+	}
+	if h6.Detail != 1 {
+		t.Errorf("Detail: got %d, want 1", h6.Detail)
+	}
+}
+
+func TestParse_H6Priority(t *testing.T) {
+	comps := Parse("###### H6Title")
+	if len(comps) != 1 {
+		t.Fatalf("expected 1, got %d", len(comps))
+	}
+	_, ok := comps[0].(H6)
+	if !ok {
+		t.Fatalf("expected H6, got %T (%s)", comps[0], comps[0].Type())
+	}
+}
+
+func TestParse_DeepNumbering(t *testing.T) {
+	input := "# A\n## B\n### C\n#### D\n#### E\n### F\n#### G"
+	comps := Parse(input)
+	// D should be 1.1.1.1
+	h4d := comps[3].(H4)
+	if h4d.Item != 1 {
+		t.Errorf("D Item: got %d, want 1", h4d.Item)
+	}
+	// E should be 1.1.1.2
+	h4e := comps[4].(H4)
+	if h4e.Item != 2 {
+		t.Errorf("E Item: got %d, want 2", h4e.Item)
+	}
+	// F resets item counter; G should be 1.1.2.1
+	h4g := comps[6].(H4)
+	if h4g.Term != 2 || h4g.Item != 1 {
+		t.Errorf("G: got term=%d item=%d, want 2.1", h4g.Term, h4g.Item)
 	}
 }
 
@@ -1151,5 +1235,227 @@ func TestBlockquote_ToString(t *testing.T) {
 	got := bq.ToString()
 	if !strings.Contains(got, "blockquote") || !strings.Contains(got, "1 lines") {
 		t.Errorf("ToString: got %q", got)
+	}
+}
+
+// --- Table alignment tests ---
+
+func TestParseTableAlignments(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{"default", "| --- | --- |", []string{"left", "left"}},
+		{"left", "| :--- | :--- |", []string{"left", "left"}},
+		{"center", "| :---: | :---: |", []string{"center", "center"}},
+		{"right", "| ---: | ---: |", []string{"right", "right"}},
+		{"mixed", "| :--- | :---: | ---: |", []string{"left", "center", "right"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseTableAlignments(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d alignments, want %d", len(got), len(tt.want))
+			}
+			for i, a := range got {
+				if a != tt.want[i] {
+					t.Errorf("align[%d]: got %q, want %q", i, a, tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestParse_TableWithAlignment(t *testing.T) {
+	input := "| Left | Center | Right |\n| :--- | :---: | ---: |\n| A | B | C |"
+	comps := Parse(input)
+	var table *Table
+	for _, c := range comps {
+		if tp, ok := c.(*Table); ok {
+			table = tp
+			break
+		}
+	}
+	if table == nil {
+		t.Fatal("expected a Table component")
+	}
+	if len(table.Alignments) != 3 {
+		t.Fatalf("Alignments: got %d, want 3", len(table.Alignments))
+	}
+	if table.Alignments[0] != "left" {
+		t.Errorf("Alignments[0]: got %q, want %q", table.Alignments[0], "left")
+	}
+	if table.Alignments[1] != "center" {
+		t.Errorf("Alignments[1]: got %q, want %q", table.Alignments[1], "center")
+	}
+	if table.Alignments[2] != "right" {
+		t.Errorf("Alignments[2]: got %q, want %q", table.Alignments[2], "right")
+	}
+}
+
+// --- Task list tests ---
+
+func TestParse_TaskListUnchecked(t *testing.T) {
+	input := "- [ ] todo item"
+	comps := Parse(input)
+	var list List
+	for _, c := range comps {
+		if l, ok := c.(List); ok { list = l; break }
+	}
+	if list.Items == nil { t.Fatal("expected a List") }
+	if len(list.Items) != 1 { t.Fatalf("Items: got %d, want 1", len(list.Items)) }
+	if list.Items[0].Checked == nil { t.Fatal("Checked should not be nil") }
+	if *list.Items[0].Checked != false { t.Error("Checked: got true, want false") }
+	if list.Items[0].Text != "todo item" { t.Errorf("Text: got %q, want %q", list.Items[0].Text, "todo item") }
+}
+
+func TestParse_TaskListChecked(t *testing.T) {
+	input := "- [x] done item"
+	comps := Parse(input)
+	var list List
+	for _, c := range comps {
+		if l, ok := c.(List); ok { list = l; break }
+	}
+	if list.Items == nil { t.Fatal("expected a List") }
+	if list.Items[0].Checked == nil { t.Fatal("Checked should not be nil") }
+	if *list.Items[0].Checked != true { t.Error("Checked: got false, want true") }
+}
+
+func TestParse_TaskListCapitalX(t *testing.T) {
+	input := "- [X] done with capital"
+	comps := Parse(input)
+	var list List
+	for _, c := range comps {
+		if l, ok := c.(List); ok { list = l; break }
+	}
+	if list.Items[0].Checked == nil { t.Fatal("Checked should not be nil") }
+	if *list.Items[0].Checked != true { t.Error("Checked: got false, want true") }
+}
+
+func TestParse_TaskListMixed(t *testing.T) {
+	input := "- [ ] unchecked\n- [x] checked\n- regular item"
+	comps := Parse(input)
+	var list List
+	for _, c := range comps {
+		if l, ok := c.(List); ok { list = l; break }
+	}
+	if len(list.Items) != 3 { t.Fatalf("Items: got %d, want 3", len(list.Items)) }
+	if list.Items[0].Checked == nil || *list.Items[0].Checked != false {
+		t.Error("item 0 should be unchecked task")
+	}
+	if list.Items[1].Checked == nil || *list.Items[1].Checked != true {
+		t.Error("item 1 should be checked task")
+	}
+	if list.Items[2].Checked != nil {
+		t.Error("item 2 should be a regular item (Checked == nil)")
+	}
+}
+
+func TestParse_TaskListNested(t *testing.T) {
+	input := "- [ ] parent\n  - [x] child"
+	comps := Parse(input)
+	var list List
+	for _, c := range comps {
+		if l, ok := c.(List); ok { list = l; break }
+	}
+	if len(list.Items) != 2 { t.Fatalf("Items: got %d, want 2", len(list.Items)) }
+	if list.Items[0].Indent != 0 { t.Errorf("item 0 Indent: got %d, want 0", list.Items[0].Indent) }
+	if list.Items[1].Indent != 1 { t.Errorf("item 1 Indent: got %d, want 1", list.Items[1].Indent) }
+}
+
+// --- Rich text tests ---
+
+func TestParseRichText_Bold(t *testing.T) {
+	segments := ParseRichText("hello **bold** world")
+	if len(segments) != 3 {
+		t.Fatalf("got %d segments, want 3", len(segments))
+	}
+	if segments[0].Text != "hello " || segments[0].Bold {
+		t.Errorf("seg[0]: got %+v", segments[0])
+	}
+	if segments[1].Text != "bold" || !segments[1].Bold {
+		t.Errorf("seg[1]: got %+v", segments[1])
+	}
+	if segments[2].Text != " world" || segments[2].Bold {
+		t.Errorf("seg[2]: got %+v", segments[2])
+	}
+}
+
+func TestParseRichText_Italic(t *testing.T) {
+	segments := ParseRichText("hello *italic* world")
+	if len(segments) != 3 {
+		t.Fatalf("got %d segments, want 3", len(segments))
+	}
+	if !segments[1].Italic || segments[1].Bold {
+		t.Errorf("seg[1]: got %+v, want italic only", segments[1])
+	}
+}
+
+func TestParseRichText_BoldItalic(t *testing.T) {
+	segments := ParseRichText("***both***")
+	if len(segments) != 1 {
+		t.Fatalf("got %d segments, want 1", len(segments))
+	}
+	if !segments[0].Bold || !segments[0].Italic {
+		t.Errorf("seg[0]: got %+v, want bold+italic", segments[0])
+	}
+}
+
+func TestParseRichText_Mixed(t *testing.T) {
+	segments := ParseRichText("**bold** and *italic*")
+	if len(segments) != 3 {
+		t.Fatalf("got %d segments, want 3: %+v", len(segments), segments)
+	}
+	if segments[0].Text != "bold" || !segments[0].Bold {
+		t.Errorf("seg[0]: got %+v", segments[0])
+	}
+	if segments[1].Text != " and " {
+		t.Errorf("seg[1]: got %+v", segments[1])
+	}
+	if segments[2].Text != "italic" || !segments[2].Italic {
+		t.Errorf("seg[2]: got %+v", segments[2])
+	}
+}
+
+func TestParseRichText_NoFormatting(t *testing.T) {
+	segments := ParseRichText("plain text")
+	if len(segments) != 1 {
+		t.Fatalf("got %d segments, want 1", len(segments))
+	}
+	if segments[0].Text != "plain text" || segments[0].Bold || segments[0].Italic {
+		t.Errorf("seg[0]: got %+v", segments[0])
+	}
+}
+
+func TestParseRichText_WithEntities(t *testing.T) {
+	segments := ParseRichText("**bold** &amp; text")
+	if len(segments) != 2 {
+		t.Fatalf("got %d segments, want 2: %+v", len(segments), segments)
+	}
+	if segments[1].Text != " & text" {
+		t.Errorf("seg[1]: got %q, want %q", segments[1].Text, " & text")
+	}
+}
+
+func TestParse_PlainTextRichText(t *testing.T) {
+	input := "This is **bold** text"
+	comps := Parse(input)
+	pt, ok := comps[0].(PlainText)
+	if !ok {
+		t.Fatalf("expected PlainText, got %T", comps[0])
+	}
+	if len(pt.RichText) < 2 {
+		t.Fatalf("RichText: got %d segments, want at least 2", len(pt.RichText))
+	}
+	hasBold := false
+	for _, seg := range pt.RichText {
+		if seg.Bold {
+			hasBold = true
+			break
+		}
+	}
+	if !hasBold {
+		t.Error("expected at least one bold segment in RichText")
 	}
 }

@@ -117,19 +117,22 @@ heading_number: true
 - `text.font` applies to: H1, H2, H3 headings, plain text, table headers, table cells, and list items
 - `code.font` applies to: code blocks
 
-Note: Heading font sizes are fixed (H1: 24pt, H2: 20pt, H3: 16pt) and not configurable. The `text.font.size` setting applies to body text, tables, and lists only.
+Note: Heading font sizes are fixed (H1: 24pt, H2: 20pt, H3: 16pt, H4: 14pt, H5: 12pt, H6: 11pt) and not configurable. The `text.font.size` setting applies to body text, tables, and lists only.
 
 ## Supported Markdown Features
 
-### Headings (H1--H3)
+### Headings (H1--H6)
 
 Headings are rendered with auto-numbering based on their hierarchy by default:
 
 - `# Title` renders as `1. Title`
 - `## Section` renders as `1.1. Section`
 - `### Subsection` renders as `1.1.1. Subsection`
+- `#### Item` renders as `1.1.1.1. Item`
+- `##### SubItem` renders as `1.1.1.1.1. SubItem`
+- `###### Detail` renders as `1.1.1.1.1.1. Detail`
 
-Each heading level has distinct bold styling and font size in the output.
+Each heading level has distinct bold styling and font size (H1: 24pt, H2: 20pt, H3: 16pt, H4: 14pt, H5: 12pt, H6: 11pt italic) in the output.
 
 To disable auto-numbering, set `heading_number: false` in the configuration file or use the `--no-heading-number` CLI flag. When disabled, headings are rendered as plain text without numbering (e.g., `# Title` renders as `Title`).
 
@@ -142,6 +145,12 @@ Markdown tables are parsed and rendered with bordered cells, a shaded header row
 |----------|----------|
 | Cell 1   | Cell 2   |
 ```
+
+Column alignment is supported via the separator row:
+
+- `:---` or `---` for left alignment (default)
+- `:---:` for center alignment
+- `---:` for right alignment
 
 ### Code blocks
 
@@ -192,6 +201,15 @@ Bullet lists and numbered lists are supported, including nesting:
    1. Sub-item
 ```
 
+Task lists (checkboxes) are also supported:
+
+```markdown
+- [ ] Unchecked item
+- [x] Checked item
+```
+
+Unchecked items render with `☐` and checked items with `☑`.
+
 ### Horizontal rules
 
 Horizontal rules (`---`, `***`, `___`) are rendered as a thin bottom-border line.
@@ -208,7 +226,9 @@ When a line contains one or more links, the first link's URL is set as the cell'
 
 ### Inline formatting
 
-Inline Markdown formatting is stripped to plain text in the output:
+When a line fits within `max_num_of_characters_per_line`, bold (`**text**`) and italic (`*text*`) are rendered as Excel Rich Text with proper formatting in the cell. Combined `***bold italic***` is also supported.
+
+For lines that require splitting across multiple rows, inline formatting is stripped to plain text:
 
 - `**bold**` and `*italic*` are converted to their inner text
 - `` `inline code` `` is converted to plain text
@@ -230,10 +250,8 @@ Plain text lines that exceed `max_num_of_characters_per_line` (default: 120) are
 
 The following Markdown features are not currently supported:
 
-- Headings beyond H3 (`####` and deeper)
 - SVG images
 - Nested tables
-- Task lists / checkboxes
 
 ## Development
 

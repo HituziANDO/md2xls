@@ -3,6 +3,7 @@ package parser
 import (
 	"html"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -11,6 +12,9 @@ var (
 	h1Regex    = regexp.MustCompile(`^#\s+(.+)`)
 	h2Regex    = regexp.MustCompile(`^##\s+(.+)`)
 	h3Regex    = regexp.MustCompile(`^###\s+(.+)`)
+	h4Regex    = regexp.MustCompile(`^####\s+(.+)`)
+	h5Regex    = regexp.MustCompile(`^#####\s+(.+)`)
+	h6Regex    = regexp.MustCompile(`^######\s+(.+)`)
 	tableRegex = regexp.MustCompile(`^\|.+\|`)
 	// HTML image: <img src="..." > or <img src='...'>
 	htmlImgRegex = regexp.MustCompile(`<img[^>]*?src\s*=\s*["']([^"']+)["'][^>]*>`)
@@ -22,6 +26,8 @@ var (
 	ulRegex = regexp.MustCompile(`^(\s*)([-*+])\s+(.+)`)
 	// Ordered list: 1. item, 2. item (with optional leading spaces)
 	olRegex = regexp.MustCompile(`^(\s*)(\d+)\.\s+(.+)`)
+	// Task list: - [ ] item or - [x] item
+	taskListRegex = regexp.MustCompile(`^(\s*)[-*+]\s+\[([ xX])\]\s+(.+)`)
 	// Blockquote: > text
 	blockquoteRegex = regexp.MustCompile(`^>\s?(.*)`)
 	// Inline formatting patterns for stripping
@@ -29,6 +35,10 @@ var (
 	italicRegex     = regexp.MustCompile(`\*(.+?)\*`)
 	inlineCodeRegex = regexp.MustCompile("`" + `([^` + "`" + `]+)` + "`")
 	linkRegex       = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+	// Rich text formatting patterns (for ParseRichText)
+	boldItalicRe = regexp.MustCompile(`\*\*\*(.+?)\*\*\*`)
+	boldOnlyRe   = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	italicOnlyRe = regexp.MustCompile(`\*(.+?)\*`)
 )
 
 // StripInlineFormatting removes markdown inline formatting from text
@@ -60,6 +70,9 @@ func Parse(text string) []Component {
 	chapter := 0
 	section := 0
 	term := 0
+	item := 0
+	subItem := 0
+	detail := 0
 	var table *Table
 	tableRow := 0
 	var code *Code
@@ -94,9 +107,11 @@ func Parse(text string) []Component {
 		}
 
 		// Check for list items (must come before other checks since lists are multi-line)
-		if m := ulRegex.FindStringSubmatch(line); m != nil {
+		if m := taskListRegex.FindStringSubmatch(line); m != nil {
 			indent := len(m[1]) / 2
 			itemText := StripInlineFormatting(strings.TrimSpace(m[3]))
+			richText := ParseRichText(m[3])
+			checked := m[2] == "x" || m[2] == "X"
 			if list == nil {
 				list = &List{
 					Chapter: chapter,
@@ -106,9 +121,32 @@ func Parse(text string) []Component {
 				}
 			}
 			list.Items = append(list.Items, ListItem{
-				Text:    itemText,
-				Ordered: false,
-				Indent:  indent,
+				Text:     itemText,
+				RichText: richText,
+				Ordered:  false,
+				Checked:  &checked,
+				Indent:   indent,
+			})
+			tableRow = 0
+			continue
+		}
+		if m := ulRegex.FindStringSubmatch(line); m != nil {
+			indent := len(m[1]) / 2
+			itemText := StripInlineFormatting(strings.TrimSpace(m[3]))
+			richText := ParseRichText(m[3])
+			if list == nil {
+				list = &List{
+					Chapter: chapter,
+					Section: section,
+					Term:    term,
+					Line:    lineNum,
+				}
+			}
+			list.Items = append(list.Items, ListItem{
+				Text:     itemText,
+				RichText: richText,
+				Ordered:  false,
+				Indent:   indent,
 			})
 			tableRow = 0
 			continue
@@ -117,6 +155,7 @@ func Parse(text string) []Component {
 			indent := len(m[1]) / 2
 			num, _ := strconv.Atoi(m[2])
 			itemText := StripInlineFormatting(strings.TrimSpace(m[3]))
+			richText := ParseRichText(m[3])
 			if list == nil {
 				list = &List{
 					Chapter: chapter,
@@ -126,10 +165,11 @@ func Parse(text string) []Component {
 				}
 			}
 			list.Items = append(list.Items, ListItem{
-				Text:    itemText,
-				Ordered: true,
-				Number:  num,
-				Indent:  indent,
+				Text:     itemText,
+				RichText: richText,
+				Ordered:  true,
+				Number:   num,
+				Indent:   indent,
 			})
 			tableRow = 0
 			continue
@@ -156,9 +196,54 @@ func Parse(text string) []Component {
 		// If we were collecting blockquote lines and this line isn't one, flush
 		flushBlockquote()
 
-		// Headings: check H3 before H2 before H1 to avoid prefix matching
-		if m := h3Regex.FindStringSubmatch(line); m != nil {
+		// Headings: check H6 before H5 before H4 before H3 before H2 before H1 to avoid prefix matching
+		if m := h6Regex.FindStringSubmatch(line); m != nil {
+			detail++
+			tableRow = 0
+			table = nil
+			res = append(res, H6{
+				Text:    html.UnescapeString(strings.TrimSpace(m[1])),
+				Line:    lineNum,
+				Chapter: chapter,
+				Section: section,
+				Term:    term,
+				Item:    item,
+				SubItem: subItem,
+				Detail:  detail,
+			})
+		} else if m := h5Regex.FindStringSubmatch(line); m != nil {
+			subItem++
+			detail = 0
+			tableRow = 0
+			table = nil
+			res = append(res, H5{
+				Text:    html.UnescapeString(strings.TrimSpace(m[1])),
+				Line:    lineNum,
+				Chapter: chapter,
+				Section: section,
+				Term:    term,
+				Item:    item,
+				SubItem: subItem,
+			})
+		} else if m := h4Regex.FindStringSubmatch(line); m != nil {
+			item++
+			subItem = 0
+			detail = 0
+			tableRow = 0
+			table = nil
+			res = append(res, H4{
+				Text:    html.UnescapeString(strings.TrimSpace(m[1])),
+				Line:    lineNum,
+				Chapter: chapter,
+				Section: section,
+				Term:    term,
+				Item:    item,
+			})
+		} else if m := h3Regex.FindStringSubmatch(line); m != nil {
 			term++
+			item = 0
+			subItem = 0
+			detail = 0
 			tableRow = 0
 			table = nil
 			res = append(res, H3{
@@ -171,6 +256,9 @@ func Parse(text string) []Component {
 		} else if m := h2Regex.FindStringSubmatch(line); m != nil {
 			section++
 			term = 0
+			item = 0
+			subItem = 0
+			detail = 0
 			tableRow = 0
 			table = nil
 			res = append(res, H2{
@@ -183,6 +271,9 @@ func Parse(text string) []Component {
 			chapter++
 			section = 0
 			term = 0
+			item = 0
+			subItem = 0
+			detail = 0
 			tableRow = 0
 			table = nil
 			res = append(res, H1{
@@ -204,7 +295,10 @@ func Parse(text string) []Component {
 				table = &t
 				res = append(res, &t)
 			} else if tableRow == 1 {
-				// Skip separator row (|---|---|)
+				// Parse alignment from separator row
+				if table != nil {
+					table.Alignments = parseTableAlignments(str)
+				}
 			} else if table != nil {
 				table.Data = append(table.Data, cells)
 			}
@@ -257,14 +351,16 @@ func Parse(text string) []Component {
 			table = nil
 			trimmed := strings.TrimSpace(line)
 			links := ExtractLinks(trimmed)
+			richText := ParseRichText(trimmed)
 			str := StripInlineFormatting(trimmed)
 			res = append(res, PlainText{
-				Text:    str,
-				Links:   links,
-				Line:    lineNum,
-				Chapter: chapter,
-				Section: section,
-				Term:    term,
+				Text:     str,
+				Links:    links,
+				RichText: richText,
+				Line:     lineNum,
+				Chapter:  chapter,
+				Section:  section,
+				Term:     term,
 			})
 		}
 	}
@@ -292,4 +388,93 @@ func splitTableRow(s string) []string {
 		cells[i] = html.UnescapeString(strings.TrimSpace(p))
 	}
 	return cells
+}
+
+// parseTableAlignments parses alignment markers from a Markdown table separator row.
+func parseTableAlignments(s string) []string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "|") {
+		s = s[1:]
+	}
+	if strings.HasSuffix(s, "|") {
+		s = s[:len(s)-1]
+	}
+	parts := strings.Split(s, "|")
+	aligns := make([]string, len(parts))
+	for i, p := range parts {
+		p = strings.TrimSpace(p)
+		left := strings.HasPrefix(p, ":")
+		right := strings.HasSuffix(p, ":")
+		switch {
+		case left && right:
+			aligns[i] = "center"
+		case right:
+			aligns[i] = "right"
+		default:
+			aligns[i] = "left"
+		}
+	}
+	return aligns
+}
+
+// ParseRichText parses inline bold/italic formatting and returns segments.
+func ParseRichText(s string) []RichTextSegment {
+	s = inlineCodeRegex.ReplaceAllString(s, "$1")
+	s = linkRegex.ReplaceAllString(s, "$1")
+	s = html.UnescapeString(s)
+
+	type span struct {
+		start, end   int
+		bold, italic bool
+		text         string
+	}
+
+	used := make([]bool, len(s))
+	var spans []span
+
+	// maskedString returns a copy of s with used positions replaced by spaces
+	// so that subsequent regex passes do not match across consumed regions.
+	maskedString := func() string {
+		bs := []byte(s)
+		for i, u := range used {
+			if u {
+				bs[i] = ' '
+			}
+		}
+		return string(bs)
+	}
+
+	findSpans := func(re *regexp.Regexp, bold, italic bool) {
+		masked := maskedString()
+		for _, idx := range re.FindAllStringSubmatchIndex(masked, -1) {
+			for k := idx[0]; k < idx[1]; k++ {
+				used[k] = true
+			}
+			spans = append(spans, span{start: idx[0], end: idx[1], bold: bold, italic: italic, text: s[idx[2]:idx[3]]})
+		}
+	}
+
+	findSpans(boldItalicRe, true, true)
+	findSpans(boldOnlyRe, true, false)
+	findSpans(italicOnlyRe, false, true)
+
+	if len(spans) == 0 {
+		return []RichTextSegment{{Text: s}}
+	}
+
+	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
+
+	var segments []RichTextSegment
+	lastEnd := 0
+	for _, sp := range spans {
+		if sp.start > lastEnd {
+			segments = append(segments, RichTextSegment{Text: s[lastEnd:sp.start]})
+		}
+		segments = append(segments, RichTextSegment{Text: sp.text, Bold: sp.bold, Italic: sp.italic})
+		lastEnd = sp.end
+	}
+	if lastEnd < len(s) {
+		segments = append(segments, RichTextSegment{Text: s[lastEnd:]})
+	}
+	return segments
 }

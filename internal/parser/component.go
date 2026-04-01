@@ -13,6 +13,9 @@ const (
 	TypeH1 ComponentType = iota
 	TypeH2
 	TypeH3
+	TypeH4
+	TypeH5
+	TypeH6
 	TypePlainText
 	TypeTable
 	TypeImage
@@ -23,13 +26,20 @@ const (
 )
 
 func (t ComponentType) String() string {
-	return [...]string{"h1", "h2", "h3", "plainText", "table", "image", "code", "list", "horizontalRule", "blockquote"}[t]
+	return [...]string{"h1", "h2", "h3", "h4", "h5", "h6", "plainText", "table", "image", "code", "list", "horizontalRule", "blockquote"}[t]
 }
 
 // LinkInfo holds a parsed Markdown link's text and URL.
 type LinkInfo struct {
 	Text string
 	URL  string
+}
+
+// RichTextSegment represents a segment of text with optional bold/italic formatting.
+type RichTextSegment struct {
+	Text   string
+	Bold   bool
+	Italic bool
 }
 
 // Component is the interface implemented by all parsed Markdown elements.
@@ -85,13 +95,62 @@ func (h H3) ToString() string {
 
 func (H3) Type() ComponentType { return TypeH3 }
 
-type PlainText struct {
+type H4 struct {
 	Text    string
-	Links   []LinkInfo
 	Chapter int
 	Section int
 	Term    int
+	Item    int
 	Line    int
+}
+
+func (h H4) ToString() string {
+	return fmt.Sprintf("[%d, %d.%d.%d.%d, %s] %s", h.Line, h.Chapter, h.Section, h.Term, h.Item, h.Type(), h.Text)
+}
+
+func (H4) Type() ComponentType { return TypeH4 }
+
+type H5 struct {
+	Text    string
+	Chapter int
+	Section int
+	Term    int
+	Item    int
+	SubItem int
+	Line    int
+}
+
+func (h H5) ToString() string {
+	return fmt.Sprintf("[%d, %d.%d.%d.%d.%d, %s] %s", h.Line, h.Chapter, h.Section, h.Term, h.Item, h.SubItem, h.Type(), h.Text)
+}
+
+func (H5) Type() ComponentType { return TypeH5 }
+
+type H6 struct {
+	Text    string
+	Chapter int
+	Section int
+	Term    int
+	Item    int
+	SubItem int
+	Detail  int
+	Line    int
+}
+
+func (h H6) ToString() string {
+	return fmt.Sprintf("[%d, %d.%d.%d.%d.%d.%d, %s] %s", h.Line, h.Chapter, h.Section, h.Term, h.Item, h.SubItem, h.Detail, h.Type(), h.Text)
+}
+
+func (H6) Type() ComponentType { return TypeH6 }
+
+type PlainText struct {
+	Text     string
+	Links    []LinkInfo
+	RichText []RichTextSegment
+	Chapter  int
+	Section  int
+	Term     int
+	Line     int
 }
 
 func (p PlainText) ToString() string {
@@ -146,12 +205,13 @@ func (p PlainText) SplitPer(count int) []string {
 }
 
 type Table struct {
-	Header  []string
-	Data    [][]string
-	Chapter int
-	Section int
-	Term    int
-	Line    int
+	Header     []string
+	Data       [][]string
+	Alignments []string
+	Chapter    int
+	Section    int
+	Term       int
+	Line       int
 }
 
 func (t Table) ToString() string {
@@ -245,10 +305,12 @@ func (c Code) RowNum() int {
 
 // ListItem represents a single item in a list.
 type ListItem struct {
-	Text    string
-	Ordered bool
-	Number  int // 1-based number for ordered lists
-	Indent  int // nesting level (0-based)
+	Text     string
+	RichText []RichTextSegment
+	Ordered  bool
+	Checked  *bool
+	Number   int // 1-based number for ordered lists
+	Indent   int // nesting level (0-based)
 }
 
 // List represents a bullet or numbered list.

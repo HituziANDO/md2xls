@@ -1,5 +1,5 @@
-src: sample/画面設計Sample.md
-dst: dst/Document.xlsx
+src: sample/demo.md
+dst: sample/demo.xlsx
 text:
   font:
     family: 游ゴシック Regular

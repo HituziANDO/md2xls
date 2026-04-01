@@ -8,9 +8,29 @@ This document demonstrates every feature supported by md2xls. Use it to verify t
 
 Headings are automatically numbered based on hierarchy: H1 gets `1.`, H2 gets `1.1.`, and H3 gets `1.1.1.`. This numbering can be disabled via the `heading_number: false` config option or the `--no-heading-number` CLI flag.
 
-### Second H3 Under This Section
+#### H4 Item Heading
 
-This is the second H3 under the same H2, so it should be numbered `1.2.2.` in the output.
+This is an H4 heading. It should be numbered `1.2.1.1.` in the output with 14pt bold font.
+
+##### H5 SubItem Heading
+
+This is an H5 heading. It should be numbered `1.2.1.1.1.` with 12pt bold font.
+
+###### H6 Detail Heading
+
+This is an H6 heading. It should be numbered `1.2.1.1.1.1.` with 11pt bold italic font.
+
+#### Second H4
+
+This verifies that the H4 counter increments correctly: `1.2.1.2.`.
+
+### Heading Counter Reset
+
+After this H3, the H4/H5/H6 counters should reset. The next H4 should be `1.2.2.1.`.
+
+#### Reset Verified
+
+This H4 should be `1.2.2.1.`, not `1.2.2.3.`.
 
 ## Tables
 
@@ -18,13 +38,29 @@ This is the second H3 under the same H2, so it should be numbered `1.2.2.` in th
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Headings | Supported | H1, H2, H3 with auto-numbering |
-| Tables | Supported | Header + data rows + borders |
+| Headings | Supported | H1-H6 with auto-numbering |
+| Tables | Supported | Header + data rows + alignment |
 | Code blocks | Supported | Fenced with language tag |
 | Blockquotes | Supported | Consecutive `>` lines grouped |
 | Images | Supported | Local and remote (HTTP/HTTPS) |
-| Lists | Supported | Ordered, unordered, nested |
-| Links | Supported | Excel hyperlinks |
+| Lists | Supported | Ordered, unordered, task lists |
+| Rich Text | Supported | Bold/italic in Excel cells |
+
+### Table with Column Alignment
+
+| Left Aligned | Center Aligned | Right Aligned |
+| :----------- | :------------: | ------------: |
+| Apple        | 100            | $1.20         |
+| Banana       | 250            | $0.50         |
+| Cherry       | 50             | $3.00         |
+
+### Mixed Alignment Table
+
+| ID | Name | Score | Grade |
+| ---: | :--- | :---: | :--- |
+| 1 | Alice | 95 | A |
+| 2 | Bob | 82 | B |
+| 3 | Charlie | 78 | C+ |
 
 ### Wide Column Table
 
@@ -113,6 +149,33 @@ Some text between blockquotes.
   1. Nested ordered 1
   2. Nested ordered 2
 
+### Task Lists
+
+- [ ] Design the new feature
+- [ ] Write unit tests
+- [x] Set up the project structure
+- [x] Implement the parser
+- [ ] Write documentation
+
+### Nested Task Lists
+
+- [ ] Release v2.0
+  - [x] Implement H4-H6 headings
+  - [x] Add task list support
+  - [x] Add table alignment
+  - [x] Add rich text formatting
+  - [ ] Final QA testing
+- [x] Release v1.0
+  - [x] Core Markdown parsing
+  - [x] Excel rendering
+
+### Mixed Task and Regular Lists
+
+- [x] Completed task
+- [ ] Pending task
+- Regular bullet item (not a task)
+- [x] Another completed task
+
 ## Links & Hyperlinks
 
 [md2xls on GitHub](https://github.com/HituziANDO/md2xls)
@@ -121,13 +184,19 @@ Visit [Go official site](https://go.dev) for more information.
 
 This line has [multiple](https://example.com/1) links [inside](https://example.com/2) it.
 
-## Inline Formatting
+## Inline Formatting (Rich Text)
 
-This text has **bold words**, *italic words*, and `inline code` mixed together.
+This text has **bold words** rendered in Excel with actual bold formatting.
 
-Here is a [link to example](https://example.com) within a sentence.
+This text has *italic words* rendered in Excel with actual italic formatting.
 
-All inline formatting markers are stripped in the Excel output, leaving clean readable text.
+This text has ***bold and italic*** rendered together in a single cell.
+
+**Bold** at the start, *italic* in the middle, and **bold again** at the end.
+
+Here is a mix of **bold**, *italic*, and `inline code` in one line.
+
+Plain text without any formatting markers stays as-is.
 
 ## HTML Entities
 
@@ -187,6 +256,18 @@ This is a second top-level heading, demonstrating that chapter numbering resets 
 
 This should be numbered `2.1.1.` in the output.
 
+#### Deep Nesting Under Second H1
+
+This should be `2.1.1.1.` — verifying counters reset properly across H1 boundaries.
+
+##### Even Deeper
+
+Numbered `2.1.1.1.1.`.
+
+###### Maximum Depth
+
+Numbered `2.1.1.1.1.1.`.
+
 ### Another Subsection
 
 And this should be `2.1.2.`.
@@ -195,14 +276,15 @@ And this should be `2.1.2.`.
 
 This demo file covers all md2xls features:
 
-1. Headings (H1-H3) with auto-numbering
-2. Tables with auto-sizing columns
+1. Headings (H1-H6) with auto-numbering
+2. Tables with column alignment (left, center, right)
 3. Fenced code blocks with language tags
 4. Blockquotes with styling
 5. Images (Markdown and HTML syntax)
 6. Lists (ordered, unordered, nested)
-7. Links rendered as Excel hyperlinks
-8. Inline formatting (bold, italic, code, links)
-9. HTML entity decoding
-10. Horizontal rules
-11. Word-boundary-aware text wrapping
+7. Task lists with checkboxes
+8. Links rendered as Excel hyperlinks
+9. Inline rich text formatting (bold, italic in Excel cells)
+10. HTML entity decoding
+11. Horizontal rules
+12. Word-boundary-aware text wrapping
