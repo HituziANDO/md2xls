@@ -17,6 +17,7 @@ type Config struct {
 	Text                      FontStyle `yaml:"-"`
 	Code                      FontStyle `yaml:"-"`
 	MaxNumOfCharactersPerLine int       `yaml:"max_num_of_characters_per_line"`
+	HeadingNumber             bool      `yaml:"heading_number"`
 }
 
 // rawConfig mirrors the YAML structure with nested font objects.
@@ -35,7 +36,8 @@ type rawConfig struct {
 			Size   *float64 `yaml:"size"`
 		} `yaml:"font"`
 	} `yaml:"code"`
-	MaxNumOfCharactersPerLine *int `yaml:"max_num_of_characters_per_line"`
+	MaxNumOfCharactersPerLine *int  `yaml:"max_num_of_characters_per_line"`
+	HeadingNumber             *bool `yaml:"heading_number"`
 }
 
 func DefaultConfig() Config {
@@ -51,6 +53,7 @@ func DefaultConfig() Config {
 			Size:   10.5,
 		},
 		MaxNumOfCharactersPerLine: 120,
+		HeadingNumber:             true,
 	}
 }
 
@@ -94,6 +97,9 @@ func Load(path string) (Config, error) {
 	}
 	if raw.MaxNumOfCharactersPerLine != nil {
 		cfg.MaxNumOfCharactersPerLine = *raw.MaxNumOfCharactersPerLine
+	}
+	if raw.HeadingNumber != nil {
+		cfg.HeadingNumber = *raw.HeadingNumber
 	}
 
 	return cfg, nil

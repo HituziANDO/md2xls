@@ -30,6 +30,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.MaxNumOfCharactersPerLine != 120 {
 		t.Errorf("MaxNumOfCharactersPerLine: got %d, want %d", cfg.MaxNumOfCharactersPerLine, 120)
 	}
+	if cfg.HeadingNumber != true {
+		t.Errorf("HeadingNumber: got %v, want true", cfg.HeadingNumber)
+	}
 }
 
 func TestLoad_MissingFile(t *testing.T) {
@@ -191,5 +194,45 @@ func TestLoad_PartialFontOverride(t *testing.T) {
 	// Size should remain default
 	if cfg.Text.Size != 11.0 {
 		t.Errorf("Text.Size: got %f, want %f (default)", cfg.Text.Size, 11.0)
+	}
+}
+
+func TestLoad_HeadingNumberFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	yaml := `heading_number: false
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.HeadingNumber != false {
+		t.Errorf("HeadingNumber: got %v, want false", cfg.HeadingNumber)
+	}
+}
+
+func TestLoad_HeadingNumberDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	yaml := `src: "input.md"
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.HeadingNumber != true {
+		t.Errorf("HeadingNumber: got %v, want true (default)", cfg.HeadingNumber)
 	}
 }

@@ -54,6 +54,7 @@ This reads the config defaults (input: `README.md`, output: `README.xlsx`).
 | `--dst` | `-d` | (from config) | Output Excel file path |
 | `--config` | `-c` | `.m2x.yml` | Path to configuration file |
 | `--version` | `-v` | | Show version and exit |
+| `--no-heading-number` | | | Disable heading auto-numbering |
 
 CLI flags override the corresponding values in the configuration file.
 
@@ -95,6 +96,7 @@ code:
     family: Courier New
     size: 10.5
 max_num_of_characters_per_line: 100
+heading_number: true
 ```
 
 ### Configuration reference
@@ -108,6 +110,7 @@ max_num_of_characters_per_line: 100
 | `code.font.family` | string | `Arial` | Font family for code blocks |
 | `code.font.size` | float | `10.5` | Font size (pt) for code blocks |
 | `max_num_of_characters_per_line` | int | `120` | Maximum characters per line before wrapping |
+| `heading_number` | bool | `true` | Enable heading auto-numbering (1., 1.1., 1.1.1.) |
 
 **Font application scope:**
 
@@ -120,13 +123,15 @@ Note: Heading font sizes are fixed (H1: 24pt, H2: 20pt, H3: 16pt) and not config
 
 ### Headings (H1--H3)
 
-Headings are rendered with auto-numbering based on their hierarchy:
+Headings are rendered with auto-numbering based on their hierarchy by default:
 
 - `# Title` renders as `1. Title`
 - `## Section` renders as `1.1. Section`
 - `### Subsection` renders as `1.1.1. Subsection`
 
 Each heading level has distinct bold styling and font size in the output.
+
+To disable auto-numbering, set `heading_number: false` in the configuration file or use the `--no-heading-number` CLI flag. When disabled, headings are rendered as plain text without numbering (e.g., `# Title` renders as `Title`).
 
 ### Tables
 

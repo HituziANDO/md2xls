@@ -77,11 +77,11 @@ func (r *Renderer) Render(components []parser.Component) error {
 
 		switch c := comp.(type) {
 		case parser.H1:
-			rowCur, err = renderH1(f, stylist, cellName, rowCur, c)
+			rowCur, err = renderH1(f, stylist, cellName, rowCur, c, cfg.HeadingNumber)
 		case parser.H2:
-			rowCur, err = renderH2(f, stylist, cellName, rowCur, c)
+			rowCur, err = renderH2(f, stylist, cellName, rowCur, c, cfg.HeadingNumber)
 		case parser.H3:
-			rowCur, err = renderH3(f, stylist, cellName, rowCur, c)
+			rowCur, err = renderH3(f, stylist, cellName, rowCur, c, cfg.HeadingNumber)
 		case *parser.Table:
 			rowCur, err = renderTable(f, stylist, rowCur, c)
 		case parser.Image:
@@ -117,32 +117,44 @@ func (r *Renderer) Render(components []parser.Component) error {
 	return nil
 }
 
-func renderH3(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H3) (int, error) {
+func renderH3(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H3, headingNumber bool) (int, error) {
 	style, err := stylist.H3Style()
 	if err != nil {
 		return row, err
 	}
-	f.SetCellValue(sheetName, cellName, fmt.Sprintf("%d.%d.%d. %s", h.Chapter, h.Section, h.Term, h.Text))
+	text := h.Text
+	if headingNumber {
+		text = fmt.Sprintf("%d.%d.%d. %s", h.Chapter, h.Section, h.Term, h.Text)
+	}
+	f.SetCellValue(sheetName, cellName, text)
 	f.SetCellStyle(sheetName, cellName, cellName, style)
 	return row + 1, nil
 }
 
-func renderH1(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H1) (int, error) {
+func renderH1(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H1, headingNumber bool) (int, error) {
 	style, err := stylist.H1Style()
 	if err != nil {
 		return row, err
 	}
-	f.SetCellValue(sheetName, cellName, fmt.Sprintf("%d. %s", h.Chapter, h.Text))
+	text := h.Text
+	if headingNumber {
+		text = fmt.Sprintf("%d. %s", h.Chapter, h.Text)
+	}
+	f.SetCellValue(sheetName, cellName, text)
 	f.SetCellStyle(sheetName, cellName, cellName, style)
 	return row + 1, nil
 }
 
-func renderH2(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H2) (int, error) {
+func renderH2(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H2, headingNumber bool) (int, error) {
 	style, err := stylist.H2Style()
 	if err != nil {
 		return row, err
 	}
-	f.SetCellValue(sheetName, cellName, fmt.Sprintf("%d.%d. %s", h.Chapter, h.Section, h.Text))
+	text := h.Text
+	if headingNumber {
+		text = fmt.Sprintf("%d.%d. %s", h.Chapter, h.Section, h.Text)
+	}
+	f.SetCellValue(sheetName, cellName, text)
 	vcell, _ := excelize.JoinCellName("H", row)
 	f.SetCellStyle(sheetName, cellName, vcell, style)
 	return row + 1, nil

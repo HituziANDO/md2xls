@@ -22,10 +22,11 @@ func main() {
 
 func run() error {
 	var (
-		cfgPath    string
-		src        string
-		dst        string
-		showVer    bool
+		cfgPath         string
+		src             string
+		dst             string
+		showVer         bool
+		noHeadingNumber bool
 	)
 
 	flag.StringVar(&cfgPath, "config", ".m2x.yml", "path to configuration file")
@@ -36,6 +37,7 @@ func run() error {
 	flag.StringVar(&dst, "d", "", "output Excel file (shorthand)")
 	flag.BoolVar(&showVer, "version", false, "show version")
 	flag.BoolVar(&showVer, "v", false, "show version (shorthand)")
+	flag.BoolVar(&noHeadingNumber, "no-heading-number", false, "disable heading numbering (1., 1.1., 1.1.1.)")
 	flag.Parse()
 
 	if showVer {
@@ -54,6 +56,9 @@ func run() error {
 	}
 	if dst != "" {
 		cfg.Dst = dst
+	}
+	if noHeadingNumber {
+		cfg.HeadingNumber = false
 	}
 
 	text, err := os.ReadFile(cfg.Src)
