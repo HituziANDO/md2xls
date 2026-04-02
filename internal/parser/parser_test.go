@@ -1494,3 +1494,76 @@ func TestParseRichText_InlineCodeWithBoldOutside(t *testing.T) {
 		t.Error("expected bold segment for **bold**")
 	}
 }
+
+// --- Strikethrough tests ---
+
+func TestStripInlineFormatting_Strikethrough(t *testing.T) {
+	got := StripInlineFormatting("~~deleted~~ text")
+	if got != "deleted text" {
+		t.Errorf("got %q, want %q", got, "deleted text")
+	}
+}
+
+func TestParseRichText_Strikethrough(t *testing.T) {
+	segs := ParseRichText("hello ~~struck~~ world")
+	if len(segs) != 3 {
+		t.Fatalf("got %d segments, want 3: %+v", len(segs), segs)
+	}
+	if segs[1].Text != "struck" || !segs[1].Strike {
+		t.Errorf("seg[1]: got %+v, want strike text 'struck'", segs[1])
+	}
+	if segs[1].Bold || segs[1].Italic {
+		t.Errorf("seg[1]: should only be strike, got bold=%v italic=%v", segs[1].Bold, segs[1].Italic)
+	}
+}
+
+func TestParseRichText_StrikethroughWithBold(t *testing.T) {
+	segs := ParseRichText("**bold** and ~~struck~~")
+	hasBold := false
+	hasStrike := false
+	for _, seg := range segs {
+		if seg.Bold && seg.Text == "bold" {
+			hasBold = true
+		}
+		if seg.Strike && seg.Text == "struck" {
+			hasStrike = true
+		}
+	}
+	if !hasBold {
+		t.Error("expected bold segment")
+	}
+	if !hasStrike {
+		t.Error("expected strike segment")
+	}
+}
+
+func TestParseRichText_StrikethroughOnly(t *testing.T) {
+	segs := ParseRichText("~~all struck~~")
+	if len(segs) != 1 {
+		t.Fatalf("got %d segments, want 1", len(segs))
+	}
+	if !segs[0].Strike || segs[0].Text != "all struck" {
+		t.Errorf("seg[0]: got %+v", segs[0])
+	}
+}
+
+func TestParse_PlainTextStrikethrough(t *testing.T) {
+	comps := Parse("This has ~~deleted~~ text")
+	pt, ok := comps[0].(PlainText)
+	if !ok {
+		t.Fatalf("expected PlainText, got %T", comps[0])
+	}
+	if pt.Text != "This has deleted text" {
+		t.Errorf("Text: got %q, want %q", pt.Text, "This has deleted text")
+	}
+	hasStrike := false
+	for _, seg := range pt.RichText {
+		if seg.Strike {
+			hasStrike = true
+			break
+		}
+	}
+	if !hasStrike {
+		t.Error("expected at least one strike segment in RichText")
+	}
+}

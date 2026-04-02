@@ -35,15 +35,18 @@ var (
 	italicRegex     = regexp.MustCompile(`\*(.+?)\*`)
 	inlineCodeRegex = regexp.MustCompile("`" + `([^` + "`" + `]+)` + "`")
 	linkRegex       = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+	strikeRegex = regexp.MustCompile(`~~(.+?)~~`)
 	// Rich text formatting patterns (for ParseRichText)
 	boldItalicRe = regexp.MustCompile(`\*\*\*(.+?)\*\*\*`)
 	boldOnlyRe   = regexp.MustCompile(`\*\*(.+?)\*\*`)
 	italicOnlyRe = regexp.MustCompile(`\*(.+?)\*`)
+	strikeRe     = regexp.MustCompile(`~~(.+?)~~`)
 )
 
 // StripInlineFormatting removes markdown inline formatting from text
 // and decodes HTML entities.
 func StripInlineFormatting(s string) string {
+	s = strikeRegex.ReplaceAllString(s, "$1")
 	s = boldRegex.ReplaceAllString(s, "$1")
 	s = italicRegex.ReplaceAllString(s, "$1")
 	s = inlineCodeRegex.ReplaceAllString(s, "$1")
@@ -426,6 +429,7 @@ func ParseRichText(s string) []RichTextSegment {
 	type span struct {
 		start, end   int
 		bold, italic bool
+		strike       bool
 		text         string
 	}
 
@@ -453,19 +457,20 @@ func ParseRichText(s string) []RichTextSegment {
 		spans = append(spans, span{start: idx[0], end: idx[1], text: s[idx[2]:idx[3]]})
 	}
 
-	findSpans := func(re *regexp.Regexp, bold, italic bool) {
+	findSpans := func(re *regexp.Regexp, bold, italic, strike bool) {
 		masked := maskedString()
 		for _, idx := range re.FindAllStringSubmatchIndex(masked, -1) {
 			for k := idx[0]; k < idx[1]; k++ {
 				used[k] = true
 			}
-			spans = append(spans, span{start: idx[0], end: idx[1], bold: bold, italic: italic, text: s[idx[2]:idx[3]]})
+			spans = append(spans, span{start: idx[0], end: idx[1], bold: bold, italic: italic, strike: strike, text: s[idx[2]:idx[3]]})
 		}
 	}
 
-	findSpans(boldItalicRe, true, true)
-	findSpans(boldOnlyRe, true, false)
-	findSpans(italicOnlyRe, false, true)
+	findSpans(boldItalicRe, true, true, false)
+	findSpans(boldOnlyRe, true, false, false)
+	findSpans(italicOnlyRe, false, true, false)
+	findSpans(strikeRe, false, false, true)
 
 	if len(spans) == 0 {
 		return []RichTextSegment{{Text: s}}
@@ -479,7 +484,7 @@ func ParseRichText(s string) []RichTextSegment {
 		if sp.start > lastEnd {
 			segments = append(segments, RichTextSegment{Text: s[lastEnd:sp.start]})
 		}
-		segments = append(segments, RichTextSegment{Text: sp.text, Bold: sp.bold, Italic: sp.italic})
+		segments = append(segments, RichTextSegment{Text: sp.text, Bold: sp.bold, Italic: sp.italic, Strike: sp.strike})
 		lastEnd = sp.end
 	}
 	if lastEnd < len(s) {

@@ -35,10 +35,11 @@ type LinkInfo struct {
 	URL  string
 }
 
-// RichTextSegment represents a segment of text with optional bold/italic formatting.
+// RichTextSegment represents a segment of text with optional bold/italic/strikethrough formatting.
 type RichTextSegment struct {
 	Text   string
 	Bold   bool
+	Strike bool
 	Italic bool
 }
 

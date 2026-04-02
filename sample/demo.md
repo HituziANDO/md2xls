@@ -134,6 +134,7 @@ Some text between blockquotes.
 - Fourth item with *italic* text
 - Fifth item with ***bold and italic*** combined
 - Sixth item has `inline code` in it
+- Seventh item with ~~strikethrough~~ text
 
 ### Ordered List
 
@@ -203,9 +204,11 @@ This text has *italic words* rendered in Excel with actual italic formatting.
 
 This text has ***bold and italic*** rendered together in a single cell.
 
+This text has ~~strikethrough~~ rendered with a line through it.
+
 **Bold** at the start, *italic* in the middle, and **bold again** at the end.
 
-Here is a mix of **bold**, *italic*, and `inline code` in one line.
+Here is a mix of **bold**, *italic*, ~~strikethrough~~, and `inline code` in one line.
 
 Plain text without any formatting markers stays as-is.
 
@@ -305,7 +308,7 @@ This demo file covers all md2xls features:
 6. Lists (ordered, unordered, nested) with rich text formatting
 7. Task lists with checkboxes
 8. Links rendered as Excel hyperlinks (with rich text support)
-9. Inline rich text formatting (bold, italic in Excel cells)
+9. Inline rich text formatting (bold, italic, strikethrough in Excel cells)
 10. Inline code protection (asterisks inside backticks are not parsed as emphasis)
 11. HTML entity decoding
 12. Horizontal rules

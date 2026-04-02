@@ -427,7 +427,7 @@ func renderBlockquote(f *excelize.File, stylist *Stylist, row int, bq parser.Blo
 
 func hasRichFormatting(segments []parser.RichTextSegment) bool {
 	for _, s := range segments {
-		if s.Bold || s.Italic {
+		if s.Bold || s.Italic || s.Strike {
 			return true
 		}
 	}
@@ -446,6 +446,7 @@ func toRichTextRunsWithLink(segments []parser.RichTextSegment, cfg config.Config
 			Family: cfg.Text.Family,
 			Bold:   seg.Bold,
 			Italic: seg.Italic,
+			Strike: seg.Strike,
 		}
 		if asLink {
 			font.Color = "0563C1"

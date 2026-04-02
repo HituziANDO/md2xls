@@ -226,7 +226,7 @@ When a line contains one or more links, the first link's URL is set as the cell'
 
 ### Inline formatting
 
-When a line fits within `max_num_of_characters_per_line`, bold (`**text**`) and italic (`*text*`) are rendered as Excel Rich Text with proper formatting in the cell. Combined `***bold italic***` is also supported. Inline formatting also applies to list items.
+When a line fits within `max_num_of_characters_per_line`, bold (`**text**`), italic (`*text*`), and strikethrough (`~~text~~`) are rendered as Excel Rich Text with proper formatting in the cell. Combined `***bold italic***` is also supported. Inline formatting also applies to list items.
 
 Inline code (`` `text` ``) is protected from emphasis parsing: asterisks inside backticks (e.g., `` `*ptr` ``, `` `**kwargs` ``) are treated as literal text, not as bold or italic markers.
 
@@ -234,7 +234,7 @@ When a line contains both rich text formatting and a link, the entire cell is st
 
 For lines that require splitting across multiple rows, inline formatting is stripped to plain text:
 
-- `**bold**` and `*italic*` are converted to their inner text
+- `**bold**`, `*italic*`, and `~~strikethrough~~` are converted to their inner text
 - `` `inline code` `` is converted to plain text
 - `[link text](url)` is displayed as the link text (with the URL preserved as an Excel hyperlink)
 
