@@ -19,7 +19,7 @@ var (
 	// HTML image: <img src="..." > or <img src='...'>
 	htmlImgRegex = regexp.MustCompile(`<img[^>]*?src\s*=\s*["']([^"']+)["'][^>]*>`)
 	// Markdown image: ![alt](url)
-	mdImgRegex = regexp.MustCompile(`^!\[([^\]]*)\]\(([^)]+)\)\s*$`)
+	mdImgRegex = regexp.MustCompile(`^!\[([^\]]*)\]\((\S+?)(?:\s+"[^"]*")?\)\s*$`)
 	codeRegex  = regexp.MustCompile(`^\s*` + "```" + `(.*)$`)
 	hrRegex = regexp.MustCompile(`^\s*(?:---+|\*\*\*+|___+)\s*$`)
 	// Unordered list: - item, * item, + item (with optional leading spaces)
@@ -31,36 +31,71 @@ var (
 	// Blockquote: > text
 	blockquoteRegex = regexp.MustCompile(`^>\s?(.*)`)
 	// Inline formatting patterns for stripping
-	boldRegex       = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	italicRegex     = regexp.MustCompile(`\*(.+?)\*`)
-	inlineCodeRegex = regexp.MustCompile("`" + `([^` + "`" + `]+)` + "`")
-	linkRegex       = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
-	strikeRegex = regexp.MustCompile(`~~(.+?)~~`)
+	boldRegex              = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	italicRegex            = regexp.MustCompile(`\*(.+?)\*`)
+	underscoreBoldRegex    = regexp.MustCompile(`__(.+?)__`)
+	underscoreItalicRegex  = regexp.MustCompile(`\b_(.+?)_\b`)
+	inlineCodeRegex        = regexp.MustCompile("`" + `([^` + "`" + `]+)` + "`")
+	linkRegex              = regexp.MustCompile(`\[([^\]]+)\]\((\S+?)(?:\s+"[^"]*")?\)`)
+	autolinkRegex          = regexp.MustCompile(`<(https?://[^>]+)>`)
+	htmlCommentRegex       = regexp.MustCompile(`<!--[\s\S]*?-->`)
+	strikeRegex            = regexp.MustCompile(`~~(.+?)~~`)
 	// Rich text formatting patterns (for ParseRichText)
-	boldItalicRe = regexp.MustCompile(`\*\*\*(.+?)\*\*\*`)
-	boldOnlyRe   = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	italicOnlyRe = regexp.MustCompile(`\*(.+?)\*`)
-	strikeRe     = regexp.MustCompile(`~~(.+?)~~`)
+	boldItalicRe           = regexp.MustCompile(`\*\*\*(.+?)\*\*\*`)
+	boldOnlyRe             = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	italicOnlyRe           = regexp.MustCompile(`\*(.+?)\*`)
+	underscoreBoldItalicRe = regexp.MustCompile(`___(.+?)___`)
+	underscoreBoldOnlyRe   = regexp.MustCompile(`__(.+?)__`)
+	underscoreItalicOnlyRe = regexp.MustCompile(`\b_(.+?)_\b`)
+	strikeRe               = regexp.MustCompile(`~~(.+?)~~`)
 )
 
 // StripInlineFormatting removes markdown inline formatting from text
 // and decodes HTML entities.
 func StripInlineFormatting(s string) string {
+	s = htmlCommentRegex.ReplaceAllString(s, "")
 	s = strikeRegex.ReplaceAllString(s, "$1")
+	s = underscoreBoldRegex.ReplaceAllString(s, "$1")
+	s = underscoreItalicRegex.ReplaceAllString(s, "$1")
 	s = boldRegex.ReplaceAllString(s, "$1")
 	s = italicRegex.ReplaceAllString(s, "$1")
 	s = inlineCodeRegex.ReplaceAllString(s, "$1")
 	s = linkRegex.ReplaceAllString(s, "$1")
+	s = autolinkRegex.ReplaceAllString(s, "$1")
 	s = html.UnescapeString(s)
 	return s
 }
 
-// ExtractLinks returns all Markdown links found in the string.
+// ExtractLinks returns all Markdown links and autolinks found in the string,
+// sorted by their position in the source text.
 func ExtractLinks(s string) []LinkInfo {
-	matches := linkRegex.FindAllStringSubmatch(s, -1)
-	var links []LinkInfo
-	for _, m := range matches {
-		links = append(links, LinkInfo{Text: m[1], URL: m[2]})
+	s = htmlCommentRegex.ReplaceAllString(s, "")
+
+	type indexedLink struct {
+		index int
+		link  LinkInfo
+	}
+	var all []indexedLink
+
+	for _, idx := range linkRegex.FindAllStringSubmatchIndex(s, -1) {
+		all = append(all, indexedLink{
+			index: idx[0],
+			link:  LinkInfo{Text: s[idx[2]:idx[3]], URL: s[idx[4]:idx[5]]},
+		})
+	}
+	for _, idx := range autolinkRegex.FindAllStringSubmatchIndex(s, -1) {
+		url := s[idx[2]:idx[3]]
+		all = append(all, indexedLink{
+			index: idx[0],
+			link:  LinkInfo{Text: url, URL: url},
+		})
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].index < all[j].index })
+
+	links := make([]LinkInfo, len(all))
+	for i, a := range all {
+		links[i] = a.link
 	}
 	return links
 }
@@ -81,6 +116,7 @@ func Parse(text string) []Component {
 	var code *Code
 	var list *List
 	var blockquote *Blockquote
+	inComment := false
 
 	flushList := func() {
 		if list != nil {
@@ -107,6 +143,28 @@ func Parse(text string) []Component {
 				code.Codes = append(code.Codes, line)
 			}
 			continue
+		}
+
+		// Skip HTML comments (single-line and multi-line)
+		trimmedLine := strings.TrimSpace(line)
+		if inComment {
+			if strings.Contains(trimmedLine, "-->") {
+				inComment = false
+			}
+			continue
+		}
+		if strings.Contains(trimmedLine, "<!--") {
+			if strings.Contains(trimmedLine, "-->") {
+				// Single-line comment occupying the whole line
+				if strings.HasPrefix(trimmedLine, "<!--") && strings.HasSuffix(trimmedLine, "-->") {
+					continue
+				}
+				// Inline comment — handled by StripInlineFormatting, don't skip
+			} else {
+				// Multi-line comment starts here
+				inComment = true
+				continue
+			}
 		}
 
 		// Check for list items (must come before other checks since lists are multi-line)
@@ -423,13 +481,16 @@ func parseTableAlignments(s string) []string {
 // ParseRichText parses inline bold/italic formatting and returns segments.
 // Inline code regions (backtick-delimited) are protected from emphasis parsing.
 func ParseRichText(s string) []RichTextSegment {
+	s = htmlCommentRegex.ReplaceAllString(s, "")
 	s = linkRegex.ReplaceAllString(s, "$1")
+	s = autolinkRegex.ReplaceAllString(s, "$1")
 	s = html.UnescapeString(s)
 
 	type span struct {
 		start, end   int
 		bold, italic bool
 		strike       bool
+		code         bool
 		text         string
 	}
 
@@ -454,7 +515,7 @@ func ParseRichText(s string) []RichTextSegment {
 		for k := idx[0]; k < idx[1]; k++ {
 			used[k] = true
 		}
-		spans = append(spans, span{start: idx[0], end: idx[1], text: s[idx[2]:idx[3]]})
+		spans = append(spans, span{start: idx[0], end: idx[1], code: true, text: s[idx[2]:idx[3]]})
 	}
 
 	findSpans := func(re *regexp.Regexp, bold, italic, strike bool) {
@@ -470,6 +531,9 @@ func ParseRichText(s string) []RichTextSegment {
 	findSpans(boldItalicRe, true, true, false)
 	findSpans(boldOnlyRe, true, false, false)
 	findSpans(italicOnlyRe, false, true, false)
+	findSpans(underscoreBoldItalicRe, true, true, false)
+	findSpans(underscoreBoldOnlyRe, true, false, false)
+	findSpans(underscoreItalicOnlyRe, false, true, false)
 	findSpans(strikeRe, false, false, true)
 
 	if len(spans) == 0 {
@@ -484,7 +548,7 @@ func ParseRichText(s string) []RichTextSegment {
 		if sp.start > lastEnd {
 			segments = append(segments, RichTextSegment{Text: s[lastEnd:sp.start]})
 		}
-		segments = append(segments, RichTextSegment{Text: sp.text, Bold: sp.bold, Italic: sp.italic, Strike: sp.strike})
+		segments = append(segments, RichTextSegment{Text: sp.text, Bold: sp.bold, Italic: sp.italic, Strike: sp.strike, Code: sp.code})
 		lastEnd = sp.end
 	}
 	if lastEnd < len(s) {

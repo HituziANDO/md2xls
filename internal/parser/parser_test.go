@@ -1567,3 +1567,476 @@ func TestParse_PlainTextStrikethrough(t *testing.T) {
 		t.Error("expected at least one strike segment in RichText")
 	}
 }
+
+// --- Link and image title tests ---
+
+func TestExtractLinks_WithTitle(t *testing.T) {
+	links := ExtractLinks(`[click](http://example.com "My Title")`)
+	if len(links) != 1 {
+		t.Fatalf("got %d links, want 1", len(links))
+	}
+	if links[0].URL != "http://example.com" {
+		t.Errorf("URL: got %q, want %q", links[0].URL, "http://example.com")
+	}
+	if links[0].Text != "click" {
+		t.Errorf("Text: got %q, want %q", links[0].Text, "click")
+	}
+}
+
+func TestStripInlineFormatting_LinkTitle(t *testing.T) {
+	got := StripInlineFormatting(`[text](url "title")`)
+	if got != "text" {
+		t.Errorf("got %q, want %q", got, "text")
+	}
+}
+
+func TestParse_ImageWithTitle(t *testing.T) {
+	comps := Parse(`![alt](image.png "caption")`)
+	var img Image
+	found := false
+	for _, c := range comps {
+		if i, ok := c.(Image); ok {
+			img = i
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected an Image component")
+	}
+	if img.Alt != "alt" {
+		t.Errorf("Alt: got %q, want %q", img.Alt, "alt")
+	}
+	if img.Path != "image.png" {
+		t.Errorf("Path: got %q, want %q", img.Path, "image.png")
+	}
+}
+
+func TestParse_LinkWithoutTitle(t *testing.T) {
+	input := "Visit [example](http://example.com) for info"
+	comps := Parse(input)
+	pt, ok := comps[0].(PlainText)
+	if !ok {
+		t.Fatalf("expected PlainText, got %T", comps[0])
+	}
+	if pt.Text != "Visit example for info" {
+		t.Errorf("Text: got %q, want %q", pt.Text, "Visit example for info")
+	}
+	if len(pt.Links) != 1 {
+		t.Fatalf("Links: got %d, want 1", len(pt.Links))
+	}
+	if pt.Links[0].URL != "http://example.com" {
+		t.Errorf("URL: got %q, want %q", pt.Links[0].URL, "http://example.com")
+	}
+}
+
+// --- Underscore emphasis tests ---
+
+func TestStripInlineFormatting_UnderscoreBold(t *testing.T) {
+	got := StripInlineFormatting("__bold__ text")
+	if got != "bold text" {
+		t.Errorf("got %q, want %q", got, "bold text")
+	}
+}
+
+func TestStripInlineFormatting_UnderscoreItalic(t *testing.T) {
+	got := StripInlineFormatting("_italic_ text")
+	if got != "italic text" {
+		t.Errorf("got %q, want %q", got, "italic text")
+	}
+}
+
+func TestStripInlineFormatting_SnakeCaseNotAffected(t *testing.T) {
+	got := StripInlineFormatting("snake_case_name")
+	if got != "snake_case_name" {
+		t.Errorf("got %q, want %q", got, "snake_case_name")
+	}
+}
+
+func TestParseRichText_UnderscoreBold(t *testing.T) {
+	segs := ParseRichText("hello __bold__ world")
+	if len(segs) != 3 {
+		t.Fatalf("got %d segments, want 3: %+v", len(segs), segs)
+	}
+	if segs[1].Text != "bold" || !segs[1].Bold {
+		t.Errorf("seg[1]: got %+v, want bold 'bold'", segs[1])
+	}
+}
+
+func TestParseRichText_UnderscoreItalic(t *testing.T) {
+	segs := ParseRichText("hello _italic_ world")
+	if len(segs) != 3 {
+		t.Fatalf("got %d segments, want 3: %+v", len(segs), segs)
+	}
+	if segs[1].Text != "italic" || !segs[1].Italic {
+		t.Errorf("seg[1]: got %+v, want italic 'italic'", segs[1])
+	}
+}
+
+func TestParseRichText_UnderscoreBoldItalic(t *testing.T) {
+	segs := ParseRichText("___bold italic___")
+	if len(segs) != 1 {
+		t.Fatalf("got %d segments, want 1", len(segs))
+	}
+	if !segs[0].Bold || !segs[0].Italic {
+		t.Errorf("seg[0]: got %+v, want bold+italic", segs[0])
+	}
+}
+
+func TestParseRichText_SnakeCaseNotEmphasis(t *testing.T) {
+	segs := ParseRichText("use snake_case_name here")
+	for _, seg := range segs {
+		if seg.Italic {
+			t.Errorf("snake_case should not trigger italic: %+v", seg)
+		}
+	}
+}
+
+func TestParseRichText_MixedAsteriskUnderscore(t *testing.T) {
+	segs := ParseRichText("**bold** and __also bold__")
+	boldCount := 0
+	for _, seg := range segs {
+		if seg.Bold {
+			boldCount++
+		}
+	}
+	if boldCount != 2 {
+		t.Errorf("expected 2 bold segments, got %d: %+v", boldCount, segs)
+	}
+}
+
+func TestParseRichText_InlineCodeSegment(t *testing.T) {
+	segs := ParseRichText("text `code` more")
+	if len(segs) != 3 {
+		t.Fatalf("got %d segments, want 3: %+v", len(segs), segs)
+	}
+	if segs[1].Text != "code" || !segs[1].Code {
+		t.Errorf("seg[1]: got %+v, want code segment 'code'", segs[1])
+	}
+	if segs[0].Code || segs[2].Code {
+		t.Error("non-code segments should not have Code=true")
+	}
+}
+
+func TestParseRichText_InlineCodeNotBoldOrItalic(t *testing.T) {
+	segs := ParseRichText("`code`")
+	if len(segs) != 1 {
+		t.Fatalf("got %d segments, want 1: %+v", len(segs), segs)
+	}
+	if !segs[0].Code {
+		t.Error("expected Code=true")
+	}
+	if segs[0].Bold || segs[0].Italic || segs[0].Strike {
+		t.Error("code segment should not have other formatting")
+	}
+}
+
+func TestParseRichText_CodeWithBold(t *testing.T) {
+	segs := ParseRichText("**bold** and `code`")
+	hasBold := false
+	hasCode := false
+	for _, seg := range segs {
+		if seg.Bold {
+			hasBold = true
+		}
+		if seg.Code {
+			hasCode = true
+		}
+	}
+	if !hasBold {
+		t.Error("expected bold segment")
+	}
+	if !hasCode {
+		t.Error("expected code segment")
+	}
+}
+
+// --- SplitRichTextPer tests ---
+
+func TestSplitRichTextPer_FitsInOneLine(t *testing.T) {
+	segs := []RichTextSegment{{Text: "hello", Bold: true}}
+	result := SplitRichTextPer(segs, 10)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 chunk, got %d", len(result))
+	}
+}
+
+func TestSplitRichTextPer_SplitsAcrossSegments(t *testing.T) {
+	segs := []RichTextSegment{
+		{Text: "hello ", Bold: true},
+		{Text: "world and more", Italic: true},
+	}
+	result := SplitRichTextPer(segs, 10)
+	if len(result) < 2 {
+		t.Fatalf("expected at least 2 chunks, got %d", len(result))
+	}
+	// First chunk should preserve bold on "hello "
+	for _, seg := range result[0] {
+		if seg.Bold && seg.Text == "" {
+			continue
+		}
+	}
+}
+
+func TestSplitRichTextPer_PreservesFormatting(t *testing.T) {
+	segs := []RichTextSegment{
+		{Text: "bold text that is quite long", Bold: true},
+	}
+	result := SplitRichTextPer(segs, 10)
+	if len(result) < 2 {
+		t.Fatalf("expected at least 2 chunks, got %d", len(result))
+	}
+	for _, chunk := range result {
+		for _, seg := range chunk {
+			if !seg.Bold {
+				t.Errorf("expected all segments to be bold, got: %+v", seg)
+			}
+		}
+	}
+}
+
+func TestSplitRichTextPer_ZeroCount(t *testing.T) {
+	segs := []RichTextSegment{{Text: "text"}}
+	result := SplitRichTextPer(segs, 0)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 chunk for count=0, got %d", len(result))
+	}
+}
+
+// --- Autolink tests ---
+
+func TestStripInlineFormatting_Autolink(t *testing.T) {
+	got := StripInlineFormatting("<https://example.com>")
+	if got != "https://example.com" {
+		t.Errorf("got %q, want %q", got, "https://example.com")
+	}
+}
+
+func TestStripInlineFormatting_AutolinkInText(t *testing.T) {
+	got := StripInlineFormatting("Visit <https://go.dev> for info")
+	if got != "Visit https://go.dev for info" {
+		t.Errorf("got %q, want %q", got, "Visit https://go.dev for info")
+	}
+}
+
+func TestExtractLinks_Autolink(t *testing.T) {
+	links := ExtractLinks("<https://example.com>")
+	if len(links) != 1 {
+		t.Fatalf("got %d links, want 1", len(links))
+	}
+	if links[0].URL != "https://example.com" {
+		t.Errorf("URL: got %q, want %q", links[0].URL, "https://example.com")
+	}
+	if links[0].Text != "https://example.com" {
+		t.Errorf("Text: got %q, want %q", links[0].Text, "https://example.com")
+	}
+}
+
+func TestExtractLinks_AutolinkAndMarkdownLink(t *testing.T) {
+	links := ExtractLinks("[click](http://a.com) and <https://b.com>")
+	if len(links) != 2 {
+		t.Fatalf("got %d links, want 2", len(links))
+	}
+}
+
+func TestParse_AutolinkPlainText(t *testing.T) {
+	comps := Parse("Visit <https://example.com> today")
+	pt, ok := comps[0].(PlainText)
+	if !ok {
+		t.Fatalf("expected PlainText, got %T", comps[0])
+	}
+	if pt.Text != "Visit https://example.com today" {
+		t.Errorf("Text: got %q", pt.Text)
+	}
+	if len(pt.Links) != 1 {
+		t.Fatalf("Links: got %d, want 1", len(pt.Links))
+	}
+	if pt.Links[0].URL != "https://example.com" {
+		t.Errorf("URL: got %q", pt.Links[0].URL)
+	}
+}
+
+func TestStripInlineFormatting_AutolinkHTTP(t *testing.T) {
+	got := StripInlineFormatting("<http://example.com>")
+	if got != "http://example.com" {
+		t.Errorf("got %q, want %q", got, "http://example.com")
+	}
+}
+
+func TestStripInlineFormatting_NotAutolink(t *testing.T) {
+	// Angle brackets without http should not be stripped as autolinks
+	got := StripInlineFormatting("<div>")
+	if got != "<div>" {
+		t.Errorf("got %q, want %q — non-URL angle brackets should be preserved", got, "<div>")
+	}
+}
+
+// --- HTML comment tests ---
+
+func TestParse_HTMLCommentLineSkipped(t *testing.T) {
+	input := "Line 1\n<!-- This is a comment -->\nLine 2"
+	comps := Parse(input)
+	// The comment line should be skipped entirely
+	texts := []string{}
+	for _, c := range comps {
+		if pt, ok := c.(PlainText); ok {
+			texts = append(texts, pt.Text)
+		}
+	}
+	for _, text := range texts {
+		if strings.Contains(text, "comment") {
+			t.Errorf("HTML comment should be removed, but found: %q", text)
+		}
+	}
+	if len(texts) != 2 {
+		t.Errorf("expected 2 PlainText components, got %d: %v", len(texts), texts)
+	}
+}
+
+func TestParse_HTMLCommentInlineStripped(t *testing.T) {
+	input := "Hello <!-- hidden --> world"
+	comps := Parse(input)
+	pt, ok := comps[0].(PlainText)
+	if !ok {
+		t.Fatalf("expected PlainText, got %T", comps[0])
+	}
+	if strings.Contains(pt.Text, "hidden") {
+		t.Errorf("inline comment should be stripped: got %q", pt.Text)
+	}
+	if strings.Contains(pt.Text, "<!--") {
+		t.Errorf("comment markers should be stripped: got %q", pt.Text)
+	}
+}
+
+func TestStripInlineFormatting_HTMLComment(t *testing.T) {
+	got := StripInlineFormatting("before <!-- comment --> after")
+	want := "before  after"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestParse_HTMLCommentOnly(t *testing.T) {
+	input := "<!-- just a comment -->"
+	comps := Parse(input)
+	for _, c := range comps {
+		if pt, ok := c.(PlainText); ok && strings.Contains(pt.Text, "comment") {
+			t.Errorf("comment-only line should produce no visible output, got: %q", pt.Text)
+		}
+	}
+}
+
+func TestParseRichText_HTMLCommentStripped(t *testing.T) {
+	segs := ParseRichText("Hello <!-- hidden --> **world**")
+	combined := ""
+	for _, seg := range segs {
+		combined += seg.Text
+	}
+	if strings.Contains(combined, "hidden") || strings.Contains(combined, "<!--") {
+		t.Errorf("HTML comment should be stripped from rich text, got: %q", combined)
+	}
+	hasBold := false
+	for _, seg := range segs {
+		if seg.Bold && seg.Text == "world" {
+			hasBold = true
+		}
+	}
+	if !hasBold {
+		t.Error("expected bold 'world' segment")
+	}
+}
+
+func TestExtractLinks_OrderPreserved(t *testing.T) {
+	links := ExtractLinks("Visit <https://first.example> and [second](https://second.example)")
+	if len(links) != 2 {
+		t.Fatalf("got %d links, want 2", len(links))
+	}
+	if links[0].URL != "https://first.example" {
+		t.Errorf("links[0].URL: got %q, want %q", links[0].URL, "https://first.example")
+	}
+	if links[1].URL != "https://second.example" {
+		t.Errorf("links[1].URL: got %q, want %q", links[1].URL, "https://second.example")
+	}
+}
+
+func TestExtractLinks_MarkdownFirst(t *testing.T) {
+	links := ExtractLinks("[first](https://first.example) then <https://second.example>")
+	if len(links) != 2 {
+		t.Fatalf("got %d links, want 2", len(links))
+	}
+	if links[0].URL != "https://first.example" {
+		t.Errorf("links[0].URL: got %q, want %q", links[0].URL, "https://first.example")
+	}
+	if links[1].URL != "https://second.example" {
+		t.Errorf("links[1].URL: got %q, want %q", links[1].URL, "https://second.example")
+	}
+}
+
+// --- BUG-M01: ExtractLinks should not extract links inside HTML comments ---
+
+func TestExtractLinks_IgnoresLinksInHTMLComment(t *testing.T) {
+	links := ExtractLinks("<!-- [hidden](https://evil.com) --> [visible](https://good.com)")
+	if len(links) != 1 {
+		t.Fatalf("got %d links, want 1: %+v", len(links), links)
+	}
+	if links[0].URL != "https://good.com" {
+		t.Errorf("URL: got %q, want %q", links[0].URL, "https://good.com")
+	}
+}
+
+func TestExtractLinks_IgnoresAutolinksInHTMLComment(t *testing.T) {
+	links := ExtractLinks("<!-- <https://evil.com> --> text")
+	if len(links) != 0 {
+		t.Fatalf("got %d links, want 0: %+v", len(links), links)
+	}
+}
+
+// --- BUG-M02: Multi-line HTML comments ---
+
+func TestParse_MultiLineHTMLComment(t *testing.T) {
+	input := "Before\n<!--\nThis is hidden\nacross multiple lines\n-->\nAfter"
+	comps := Parse(input)
+	var texts []string
+	for _, c := range comps {
+		if pt, ok := c.(PlainText); ok {
+			texts = append(texts, pt.Text)
+		}
+	}
+	for _, text := range texts {
+		if strings.Contains(text, "hidden") || strings.Contains(text, "<!--") || strings.Contains(text, "-->") {
+			t.Errorf("multi-line comment content should be removed, found: %q", text)
+		}
+	}
+	if len(texts) != 2 {
+		t.Errorf("expected 2 PlainText (Before, After), got %d: %v", len(texts), texts)
+	}
+}
+
+func TestParse_MultiLineHTMLCommentStartMidLine(t *testing.T) {
+	// Comment starts on its own line, ends on its own line
+	input := "Line 1\n<!--\nhidden\n-->\nLine 2"
+	comps := Parse(input)
+	var texts []string
+	for _, c := range comps {
+		if pt, ok := c.(PlainText); ok {
+			texts = append(texts, pt.Text)
+		}
+	}
+	if len(texts) != 2 {
+		t.Errorf("expected 2 PlainText, got %d: %v", len(texts), texts)
+	}
+}
+
+func TestParse_SingleAndMultiLineHTMLCommentsMixed(t *testing.T) {
+	input := "A\n<!-- single line -->\nB\n<!--\nmulti\nline\n-->\nC"
+	comps := Parse(input)
+	var texts []string
+	for _, c := range comps {
+		if pt, ok := c.(PlainText); ok {
+			texts = append(texts, pt.Text)
+		}
+	}
+	if len(texts) != 3 {
+		t.Errorf("expected 3 PlainText (A, B, C), got %d: %v", len(texts), texts)
+	}
+}

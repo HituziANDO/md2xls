@@ -7,6 +7,7 @@ import (
 
 	"github.com/HituziANDO/md2xls/internal/config"
 	"github.com/HituziANDO/md2xls/internal/parser"
+	"github.com/xuri/excelize/v2"
 )
 
 func TestRender_SimpleDocument(t *testing.T) {
@@ -154,5 +155,43 @@ func TestRender_PlainTextSplitByMaxChars(t *testing.T) {
 
 	if _, err := os.Stat(dst); err != nil {
 		t.Fatalf("output file not found: %v", err)
+	}
+}
+
+func TestRender_CustomSheetName(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "sheet.xlsx")
+
+	cfg := config.DefaultConfig()
+	cfg.Dst = dst
+	cfg.Src = "test.md"
+	cfg.SheetName = "CustomSheet"
+
+	components := []parser.Component{
+		parser.PlainText{Text: "test", Chapter: 0, Section: 0, Term: 0, Line: 1},
+	}
+
+	r := New(cfg)
+	err := r.Render(components)
+	if err != nil {
+		t.Fatalf("Render failed: %v", err)
+	}
+
+	// Open and verify sheet name
+	f, err := excelize.OpenFile(dst)
+	if err != nil {
+		t.Fatalf("open xlsx: %v", err)
+	}
+	defer f.Close()
+
+	sheets := f.GetSheetList()
+	found := false
+	for _, s := range sheets {
+		if s == "CustomSheet" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected sheet 'CustomSheet', got sheets: %v", sheets)
 	}
 }

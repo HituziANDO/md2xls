@@ -35,12 +35,13 @@ type LinkInfo struct {
 	URL  string
 }
 
-// RichTextSegment represents a segment of text with optional bold/italic/strikethrough formatting.
+// RichTextSegment represents a segment of text with optional bold/italic/strikethrough/code formatting.
 type RichTextSegment struct {
 	Text   string
 	Bold   bool
 	Strike bool
 	Italic bool
+	Code   bool
 }
 
 // Component is the interface implemented by all parsed Markdown elements.
@@ -203,6 +204,91 @@ func (p PlainText) SplitPer(count int) []string {
 		}
 	}
 	return res
+}
+
+// SplitRichTextPer splits rich text segments into chunks where each chunk's
+// total rune count does not exceed the given limit. Formatting is preserved
+// across split boundaries by splitting individual segments as needed.
+// It prefers splitting at word boundaries (spaces) similar to SplitPer.
+func SplitRichTextPer(segments []RichTextSegment, count int) [][]RichTextSegment {
+	if count <= 0 {
+		return [][]RichTextSegment{segments}
+	}
+
+	total := 0
+	for _, seg := range segments {
+		total += utf8.RuneCountInString(seg.Text)
+	}
+	if total <= count {
+		return [][]RichTextSegment{segments}
+	}
+
+	var result [][]RichTextSegment
+	var current []RichTextSegment
+	currentLen := 0
+
+	copySeg := func(seg RichTextSegment, text string) RichTextSegment {
+		return RichTextSegment{Text: text, Bold: seg.Bold, Italic: seg.Italic, Strike: seg.Strike, Code: seg.Code}
+	}
+
+	for _, seg := range segments {
+		segRunes := []rune(seg.Text)
+		segLen := len(segRunes)
+
+		if currentLen+segLen <= count {
+			current = append(current, seg)
+			currentLen += segLen
+			continue
+		}
+
+		pos := 0
+		for pos < segLen {
+			remaining := count - currentLen
+			if remaining <= 0 {
+				if len(current) > 0 {
+					result = append(result, current)
+				}
+				current = nil
+				currentLen = 0
+				remaining = count
+			}
+
+			end := pos + remaining
+			if end >= segLen {
+				current = append(current, copySeg(seg, string(segRunes[pos:])))
+				currentLen += segLen - pos
+				pos = segLen
+			} else {
+				splitAt := -1
+				for i := end; i > pos; i-- {
+					if segRunes[i] == ' ' {
+						splitAt = i
+						break
+					}
+				}
+
+				if splitAt > pos {
+					current = append(current, copySeg(seg, string(segRunes[pos:splitAt])))
+					currentLen += splitAt - pos
+					pos = splitAt + 1
+				} else {
+					current = append(current, copySeg(seg, string(segRunes[pos:end])))
+					currentLen += end - pos
+					pos = end
+				}
+
+				result = append(result, current)
+				current = nil
+				currentLen = 0
+			}
+		}
+	}
+
+	if len(current) > 0 {
+		result = append(result, current)
+	}
+
+	return result
 }
 
 type Table struct {

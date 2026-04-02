@@ -11,13 +11,25 @@ type FontStyle struct {
 	Size   float64 `yaml:"size"`
 }
 
+// HeadingFontSize holds font sizes for each heading level.
+type HeadingFontSize struct {
+	H1 float64 `yaml:"h1"`
+	H2 float64 `yaml:"h2"`
+	H3 float64 `yaml:"h3"`
+	H4 float64 `yaml:"h4"`
+	H5 float64 `yaml:"h5"`
+	H6 float64 `yaml:"h6"`
+}
+
 type Config struct {
-	Src                       string    `yaml:"src"`
-	Dst                       string    `yaml:"dst"`
-	Text                      FontStyle `yaml:"-"`
-	Code                      FontStyle `yaml:"-"`
-	MaxNumOfCharactersPerLine int       `yaml:"max_num_of_characters_per_line"`
-	HeadingNumber             bool      `yaml:"heading_number"`
+	Src                       string          `yaml:"src"`
+	Dst                       string          `yaml:"dst"`
+	Text                      FontStyle       `yaml:"-"`
+	Code                      FontStyle       `yaml:"-"`
+	MaxNumOfCharactersPerLine int             `yaml:"max_num_of_characters_per_line"`
+	HeadingNumber             bool            `yaml:"heading_number"`
+	HeadingFontSize           HeadingFontSize `yaml:"-"`
+	SheetName                 string          `yaml:"sheet_name"`
 }
 
 // rawConfig mirrors the YAML structure with nested font objects.
@@ -36,8 +48,17 @@ type rawConfig struct {
 			Size   *float64 `yaml:"size"`
 		} `yaml:"font"`
 	} `yaml:"code"`
-	MaxNumOfCharactersPerLine *int  `yaml:"max_num_of_characters_per_line"`
-	HeadingNumber             *bool `yaml:"heading_number"`
+	MaxNumOfCharactersPerLine *int     `yaml:"max_num_of_characters_per_line"`
+	HeadingNumber             *bool   `yaml:"heading_number"`
+	SheetName                 *string `yaml:"sheet_name"`
+	HeadingFontSize           *struct {
+		H1 *float64 `yaml:"h1"`
+		H2 *float64 `yaml:"h2"`
+		H3 *float64 `yaml:"h3"`
+		H4 *float64 `yaml:"h4"`
+		H5 *float64 `yaml:"h5"`
+		H6 *float64 `yaml:"h6"`
+	} `yaml:"heading_font_size"`
 }
 
 func DefaultConfig() Config {
@@ -54,6 +75,15 @@ func DefaultConfig() Config {
 		},
 		MaxNumOfCharactersPerLine: 120,
 		HeadingNumber:             true,
+		SheetName:                 "doc",
+		HeadingFontSize: HeadingFontSize{
+			H1: 24,
+			H2: 20,
+			H3: 16,
+			H4: 14,
+			H5: 12,
+			H6: 11,
+		},
 	}
 }
 
@@ -100,6 +130,29 @@ func Load(path string) (Config, error) {
 	}
 	if raw.HeadingNumber != nil {
 		cfg.HeadingNumber = *raw.HeadingNumber
+	}
+	if raw.SheetName != nil {
+		cfg.SheetName = *raw.SheetName
+	}
+	if raw.HeadingFontSize != nil {
+		if raw.HeadingFontSize.H1 != nil {
+			cfg.HeadingFontSize.H1 = *raw.HeadingFontSize.H1
+		}
+		if raw.HeadingFontSize.H2 != nil {
+			cfg.HeadingFontSize.H2 = *raw.HeadingFontSize.H2
+		}
+		if raw.HeadingFontSize.H3 != nil {
+			cfg.HeadingFontSize.H3 = *raw.HeadingFontSize.H3
+		}
+		if raw.HeadingFontSize.H4 != nil {
+			cfg.HeadingFontSize.H4 = *raw.HeadingFontSize.H4
+		}
+		if raw.HeadingFontSize.H5 != nil {
+			cfg.HeadingFontSize.H5 = *raw.HeadingFontSize.H5
+		}
+		if raw.HeadingFontSize.H6 != nil {
+			cfg.HeadingFontSize.H6 = *raw.HeadingFontSize.H6
+		}
 	}
 
 	return cfg, nil

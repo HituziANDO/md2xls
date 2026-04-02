@@ -35,6 +35,28 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_HeadingFontSize(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.HeadingFontSize.H1 != 24 {
+		t.Errorf("H1: got %v, want 24", cfg.HeadingFontSize.H1)
+	}
+	if cfg.HeadingFontSize.H2 != 20 {
+		t.Errorf("H2: got %v, want 20", cfg.HeadingFontSize.H2)
+	}
+	if cfg.HeadingFontSize.H3 != 16 {
+		t.Errorf("H3: got %v, want 16", cfg.HeadingFontSize.H3)
+	}
+	if cfg.HeadingFontSize.H4 != 14 {
+		t.Errorf("H4: got %v, want 14", cfg.HeadingFontSize.H4)
+	}
+	if cfg.HeadingFontSize.H5 != 12 {
+		t.Errorf("H5: got %v, want 12", cfg.HeadingFontSize.H5)
+	}
+	if cfg.HeadingFontSize.H6 != 11 {
+		t.Errorf("H6: got %v, want 11", cfg.HeadingFontSize.H6)
+	}
+}
+
 func TestLoad_MissingFile(t *testing.T) {
 	cfg, err := Load("/nonexistent/path/config.yml")
 	if err != nil {
@@ -217,6 +239,37 @@ func TestLoad_HeadingNumberFalse(t *testing.T) {
 	}
 }
 
+func TestLoad_HeadingFontSizePartial(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	yaml := "heading_font_size:\n  h1: 30\n  h3: 18\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.HeadingFontSize.H1 != 30 {
+		t.Errorf("H1: got %v, want 30", cfg.HeadingFontSize.H1)
+	}
+	if cfg.HeadingFontSize.H2 != 20 {
+		t.Errorf("H2: got %v, want 20 (default)", cfg.HeadingFontSize.H2)
+	}
+	if cfg.HeadingFontSize.H3 != 18 {
+		t.Errorf("H3: got %v, want 18", cfg.HeadingFontSize.H3)
+	}
+	if cfg.HeadingFontSize.H4 != 14 {
+		t.Errorf("H4: got %v, want 14 (default)", cfg.HeadingFontSize.H4)
+	}
+	if cfg.HeadingFontSize.H5 != 12 {
+		t.Errorf("H5: got %v, want 12 (default)", cfg.HeadingFontSize.H5)
+	}
+	if cfg.HeadingFontSize.H6 != 11 {
+		t.Errorf("H6: got %v, want 11 (default)", cfg.HeadingFontSize.H6)
+	}
+}
+
 func TestLoad_HeadingNumberDefault(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yml")
@@ -236,3 +289,43 @@ func TestLoad_HeadingNumberDefault(t *testing.T) {
 		t.Errorf("HeadingNumber: got %v, want true (default)", cfg.HeadingNumber)
 	}
 }
+
+func TestDefaultConfig_SheetName(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.SheetName != "doc" {
+		t.Errorf("SheetName: got %q, want %q", cfg.SheetName, "doc")
+	}
+}
+
+func TestLoad_SheetName(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	yaml := "sheet_name: mysheet\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SheetName != "mysheet" {
+		t.Errorf("SheetName: got %q, want %q", cfg.SheetName, "mysheet")
+	}
+}
+
+func TestLoad_SheetNameDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	yaml := "src: input.md\n"
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SheetName != "doc" {
+		t.Errorf("SheetName: got %q, want %q (default)", cfg.SheetName, "doc")
+	}
+}
+

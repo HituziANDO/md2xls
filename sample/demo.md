@@ -124,6 +124,10 @@ Some text between blockquotes.
 
 <img src="https://via.placeholder.com/200x80.png">
 
+### Image with Title Attribute
+
+![Placeholder](https://via.placeholder.com/150x50.png "This title should be ignored")
+
 ## Lists
 
 ### Unordered List
@@ -133,8 +137,10 @@ Some text between blockquotes.
 - Third item with **bold** text
 - Fourth item with *italic* text
 - Fifth item with ***bold and italic*** combined
-- Sixth item has `inline code` in it
+- Sixth item has `inline code` in it (rendered with code font)
 - Seventh item with ~~strikethrough~~ text
+- Eighth item with __underscore bold__ text
+- Ninth item with _underscore italic_ text
 
 ### Ordered List
 
@@ -196,6 +202,26 @@ See *this [italic link](https://example.com/italic)* for an example.
 
 Check out ***[bold italic link](https://example.com/bolditalic)*** here.
 
+### Links with Title Attribute
+
+[Link with title](https://example.com "Example Title") should show URL without the title text.
+
+### Autolinks
+
+Visit <https://go.dev> for the official Go site.
+
+Both <http://example.com> and <https://example.com> are recognized.
+
+This line mixes [a regular link](https://example.com/a) with <https://example.com/b> an autolink.
+
+## HTML Comments
+
+<!-- This entire line is a comment and should not appear in the output -->
+
+This text is visible. <!-- This inline comment is hidden --> And this text is also visible.
+
+<!-- Another comment -->
+
 ## Inline Formatting (Rich Text)
 
 This text has **bold words** rendered in Excel with actual bold formatting.
@@ -209,6 +235,28 @@ This text has ~~strikethrough~~ rendered with a line through it.
 **Bold** at the start, *italic* in the middle, and **bold again** at the end.
 
 Here is a mix of **bold**, *italic*, ~~strikethrough~~, and `inline code` in one line.
+
+### Underscore Emphasis
+
+This text has __underscore bold__ rendered the same as **asterisk bold**.
+
+This text has _underscore italic_ rendered the same as *asterisk italic*.
+
+This text has ___underscore bold italic___ rendered the same as ***asterisk bold italic***.
+
+The word snake_case_name should NOT be treated as italic — word boundaries are respected.
+
+Mixed: **asterisk bold** and __underscore bold__ in the same line.
+
+### Inline Code with Code Font
+
+The `inline code` in this line should render with the configured code font (e.g., Arial).
+
+Mix of **bold text** and `code text` shows both formatting and code font in one cell.
+
+### Rich Text in Long Lines
+
+This is a very long line with **bold formatting** that should exceed the max_num_of_characters_per_line limit and demonstrate that bold/italic/strikethrough formatting is preserved even when the text is split across multiple Excel rows, unlike the previous behavior where it fell back to plain text.
 
 Plain text without any formatting markers stays as-is.
 
@@ -304,12 +352,17 @@ This demo file covers all md2xls features:
 2. Tables with column alignment (left, center, right)
 3. Fenced code blocks with language tags
 4. Blockquotes with styling
-5. Images (Markdown and HTML syntax)
+5. Images (Markdown and HTML syntax, title attribute stripped)
 6. Lists (ordered, unordered, nested) with rich text formatting
 7. Task lists with checkboxes
-8. Links rendered as Excel hyperlinks (with rich text support)
-9. Inline rich text formatting (bold, italic, strikethrough in Excel cells)
-10. Inline code protection (asterisks inside backticks are not parsed as emphasis)
-11. HTML entity decoding
-12. Horizontal rules
-13. Word-boundary-aware text wrapping
+8. Links rendered as Excel hyperlinks (title attribute stripped, rich text support)
+9. Autolinks (`<https://...>`) rendered as Excel hyperlinks
+10. Inline rich text formatting (bold, italic, strikethrough — asterisk and underscore syntax)
+11. Inline code rendered with code font in rich text mode
+12. Rich text formatting preserved across line splits
+13. Inline code protection (asterisks inside backticks are not parsed as emphasis)
+14. HTML comment removal (full-line and inline)
+15. HTML entity decoding
+16. Horizontal rules
+17. Word-boundary-aware text wrapping
+18. Configurable heading font sizes and sheet name via `.m2x.yml`

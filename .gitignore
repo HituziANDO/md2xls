@@ -20,3 +20,4 @@ tmp
 dist/
 md2xls
 .claude/settings.local.json
+.codex

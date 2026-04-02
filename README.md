@@ -97,6 +97,14 @@ code:
     size: 10.5
 max_num_of_characters_per_line: 100
 heading_number: true
+sheet_name: doc
+heading_font_size:
+  h1: 24
+  h2: 20
+  h3: 16
+  h4: 14
+  h5: 12
+  h6: 11
 ```
 
 ### Configuration reference
@@ -107,17 +115,24 @@ heading_number: true
 | `dst` | string | `README.xlsx` | Output Excel file path |
 | `text.font.family` | string | `Meiryo UI` | Font family for headings, body text, and tables |
 | `text.font.size` | float | `11.0` | Font size (pt) for body text and tables |
-| `code.font.family` | string | `Arial` | Font family for code blocks |
-| `code.font.size` | float | `10.5` | Font size (pt) for code blocks |
+| `code.font.family` | string | `Arial` | Font family for code blocks and inline code |
+| `code.font.size` | float | `10.5` | Font size (pt) for code blocks and inline code |
 | `max_num_of_characters_per_line` | int | `120` | Maximum characters per line before wrapping |
 | `heading_number` | bool | `true` | Enable heading auto-numbering for H1--H4 (1., 1.1., 1.1.1., 1.1.1.1.) |
+| `sheet_name` | string | `doc` | Excel sheet name |
+| `heading_font_size.h1` | float | `24` | Font size (pt) for H1 headings |
+| `heading_font_size.h2` | float | `20` | Font size (pt) for H2 headings |
+| `heading_font_size.h3` | float | `16` | Font size (pt) for H3 headings |
+| `heading_font_size.h4` | float | `14` | Font size (pt) for H4 headings |
+| `heading_font_size.h5` | float | `12` | Font size (pt) for H5 headings |
+| `heading_font_size.h6` | float | `11` | Font size (pt) for H6 headings |
 
 **Font application scope:**
 
 - `text.font` applies to: H1--H6 headings, plain text, table headers, table cells, and list items
 - `code.font` applies to: code blocks
 
-Note: Heading font sizes are fixed (H1: 24pt, H2: 20pt, H3: 16pt, H4: 14pt, H5: 12pt, H6: 11pt) and not configurable. The `text.font.size` setting applies to body text, tables, and lists only.
+Note: Heading font sizes default to H1: 24pt, H2: 20pt, H3: 16pt, H4: 14pt, H5: 12pt, H6: 11pt. They can be customized via the `heading_font_size` config. The `text.font.size` setting applies to body text, tables, and lists only.
 
 ## Supported Markdown Features
 
@@ -224,19 +239,41 @@ Markdown links are rendered as Excel hyperlinks with blue underlined text:
 
 When a line contains one or more links, the first link's URL is set as the cell's hyperlink. The display text shows the link text with formatting stripped.
 
+Autolinks are also supported:
+
+```markdown
+<https://example.com>
+```
+
+Autolinks are rendered as Excel hyperlinks where the URL is both the display text and the link target.
+
+### HTML comments
+
+HTML comments are removed from the output:
+
+```markdown
+<!-- This comment will not appear in Excel -->
+Text <!-- inline comment --> more text
+```
+
+Full-line comments are skipped entirely. Inline comments are stripped from the text.
+
 ### Inline formatting
 
-When a line fits within `max_num_of_characters_per_line`, bold (`**text**`), italic (`*text*`), and strikethrough (`~~text~~`) are rendered as Excel Rich Text with proper formatting in the cell. Combined `***bold italic***` is also supported. Inline formatting also applies to list items.
+Both asterisk and underscore syntax are supported for emphasis: bold (`**text**` or `__text__`), italic (`*text*` or `_text_`), and strikethrough (`~~text~~`) are rendered as Excel Rich Text with proper formatting in the cell. Combined `***bold italic***` or `___bold italic___` is also supported. Inline formatting also applies to list items.
 
-Inline code (`` `text` ``) is protected from emphasis parsing: asterisks inside backticks (e.g., `` `*ptr` ``, `` `**kwargs` ``) are treated as literal text, not as bold or italic markers.
+Underscore-based italic uses word boundaries to avoid false matches on `snake_case_names`.
+
+Inline code (`` `text` ``) is rendered with the configured code font (e.g., `code.font.family`) in rich text mode. It is also protected from emphasis parsing: asterisks inside backticks (e.g., `` `*ptr` ``, `` `**kwargs` ``) are treated as literal text, not as bold or italic markers.
 
 When a line contains both rich text formatting and a link, the entire cell is styled as a hyperlink (blue underlined text) while preserving bold/italic formatting within the rich text runs.
 
-For lines that require splitting across multiple rows, inline formatting is stripped to plain text:
+Rich text formatting (bold, italic, strikethrough, code font) is preserved even when lines are split across multiple rows due to exceeding `max_num_of_characters_per_line`.
 
-- `**bold**`, `*italic*`, and `~~strikethrough~~` are converted to their inner text
-- `` `inline code` `` is converted to plain text
+For plain text without any formatting markers, long lines are split into multiple rows:
+
 - `[link text](url)` is displayed as the link text (with the URL preserved as an Excel hyperlink)
+- Optional link titles (`[text](url "title")`) and image titles (`![alt](url "title")`) are automatically stripped
 
 ### HTML entities
 

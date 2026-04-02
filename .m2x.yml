@@ -10,3 +10,11 @@ code:
     size: 10.5
 max_num_of_characters_per_line: 120
 heading_number: true
+sheet_name: doc
+heading_font_size:
+  h1: 24
+  h2: 20
+  h3: 16
+  h4: 14
+  h5: 12
+  h6: 11

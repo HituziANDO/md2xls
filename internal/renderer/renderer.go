@@ -22,12 +22,12 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-const (
-	sheetName = "doc"
-	cellWidth = 20
-)
+const cellWidth = 20
 
-var httpRegex = regexp.MustCompile(`^https?://`)
+var (
+	sheetName = "doc"
+	httpRegex = regexp.MustCompile(`^https?://`)
+)
 
 // Renderer converts parsed Markdown components to an Excel file.
 type Renderer struct {
@@ -42,6 +42,7 @@ func New(cfg config.Config) *Renderer {
 func (r *Renderer) Render(components []parser.Component) error {
 	cfg := r.cfg
 	srcDir := filepath.Dir(cfg.Src)
+	sheetName = cfg.SheetName
 
 	f := excelize.NewFile()
 	defer f.Close()
@@ -70,6 +71,7 @@ func (r *Renderer) Render(components []parser.Component) error {
 		return fmt.Errorf("set sheet view: %w", err)
 	}
 
+	var tmpDirs []string
 	rowCur := 1
 	for _, comp := range components {
 		cellName, err := excelize.JoinCellName("A", rowCur)
@@ -93,7 +95,11 @@ func (r *Renderer) Render(components []parser.Component) error {
 		case *parser.Table:
 			rowCur, err = renderTable(f, stylist, rowCur, c)
 		case parser.Image:
-			rowCur, err = renderImage(f, cellName, rowCur, c, srcDir)
+			var tmpDir string
+			rowCur, tmpDir, err = renderImage(f, cellName, rowCur, c, srcDir)
+			if tmpDir != "" {
+				tmpDirs = append(tmpDirs, tmpDir)
+			}
 		case *parser.Code:
 			rowCur, err = renderCode(f, stylist, rowCur, c)
 		case parser.List:
@@ -122,6 +128,11 @@ func (r *Renderer) Render(components []parser.Component) error {
 
 	if err := f.SaveAs(cfg.Dst); err != nil {
 		return fmt.Errorf("save file: %w", err)
+	}
+
+	// Clean up temporary directories used for downloaded images.
+	for _, d := range tmpDirs {
+		os.RemoveAll(d)
 	}
 
 	return nil
@@ -280,21 +291,23 @@ func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Tabl
 	return row, nil
 }
 
-func renderImage(f *excelize.File, cellName string, row int, img parser.Image, srcDir string) (int, error) {
+func renderImage(f *excelize.File, cellName string, row int, img parser.Image, srcDir string) (int, string, error) {
 	imgPath := filepath.Join(srcDir, img.Path)
+	var tmpDir string
 	if httpRegex.MatchString(img.Path) {
-		p, err := fetchImage(img.Path)
+		p, td, err := fetchImage(img.Path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to fetch image %s: %v\n", img.Path, err)
-			return row + 1, nil
+			return row + 1, "", nil
 		}
 		imgPath = p
+		tmpDir = td
 	}
 
 	oriImg, err := openImage(imgPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to open image %s: %v\n", imgPath, err)
-		return row + 1, nil
+		return row + 1, tmpDir, nil
 	}
 
 	rect := oriImg.Bounds()
@@ -309,7 +322,7 @@ func renderImage(f *excelize.File, cellName string, row int, img parser.Image, s
 	h := oriH * scale
 
 	if err := f.SetRowHeight(sheetName, row, h); err != nil {
-		return row, fmt.Errorf("set row height: %w", err)
+		return row, tmpDir, fmt.Errorf("set row height: %w", err)
 	}
 
 	// Resize for quality (1.8x with Lanczos3)
@@ -323,12 +336,12 @@ func renderImage(f *excelize.File, cellName string, row int, img parser.Image, s
 
 	// Padding row
 	if err := f.SetRowHeight(sheetName, row+1, paddingHeight); err != nil {
-		return row, fmt.Errorf("set padding height: %w", err)
+		return row, tmpDir, fmt.Errorf("set padding height: %w", err)
 	}
 
 	buf := new(bytes.Buffer)
 	if err := jpeg.Encode(buf, m, nil); err != nil {
-		return row, fmt.Errorf("encode image: %w", err)
+		return row, tmpDir, fmt.Errorf("encode image: %w", err)
 	}
 
 	ext := strings.ToLower(path.Ext(img.Path))
@@ -340,10 +353,10 @@ func renderImage(f *excelize.File, cellName string, row int, img parser.Image, s
 		File:      buf.Bytes(),
 		Format:    &excelize.GraphicOptions{LockAspectRatio: true},
 	}); err != nil {
-		return row, fmt.Errorf("add picture: %w", err)
+		return row, tmpDir, fmt.Errorf("add picture: %w", err)
 	}
 
-	return row + 2, nil
+	return row + 2, tmpDir, nil
 }
 
 func renderCode(f *excelize.File, stylist *Stylist, row int, code *parser.Code) (int, error) {
@@ -427,7 +440,7 @@ func renderBlockquote(f *excelize.File, stylist *Stylist, row int, bq parser.Blo
 
 func hasRichFormatting(segments []parser.RichTextSegment) bool {
 	for _, s := range segments {
-		if s.Bold || s.Italic || s.Strike {
+		if s.Bold || s.Italic || s.Strike || s.Code {
 			return true
 		}
 	}
@@ -448,6 +461,10 @@ func toRichTextRunsWithLink(segments []parser.RichTextSegment, cfg config.Config
 			Italic: seg.Italic,
 			Strike: seg.Strike,
 		}
+		if seg.Code {
+			font.Family = cfg.Code.Family
+			font.Size = cfg.Code.Size
+		}
 		if asLink {
 			font.Color = "0563C1"
 			font.Underline = "single"
@@ -466,19 +483,24 @@ func renderPlainText(f *excelize.File, stylist *Stylist, row int, pt parser.Plai
 		return row, err
 	}
 
-	// Use rich text rendering if text fits in one line and has formatting
-	if pt.RuneCount() <= maxChars && hasRichFormatting(pt.RichText) {
-		cellName, _ := excelize.JoinCellName("A", row)
-		hasLink := len(pt.Links) > 0
-		f.SetCellRichText(sheetName, cellName, toRichTextRunsWithLink(pt.RichText, stylist.cfg, hasLink))
-		f.SetCellStyle(sheetName, cellName, cellName, style)
-		if hasLink {
-			f.SetCellHyperLink(sheetName, cellName, pt.Links[0].URL, "External")
+	hasLink := len(pt.Links) > 0
+
+	// Use rich text rendering when formatting exists (preserves bold/italic/etc. across line splits)
+	if hasRichFormatting(pt.RichText) {
+		chunks := parser.SplitRichTextPer(pt.RichText, maxChars)
+		for i, chunk := range chunks {
+			cellName, _ := excelize.JoinCellName("A", row)
+			f.SetCellRichText(sheetName, cellName, toRichTextRunsWithLink(chunk, stylist.cfg, i == 0 && hasLink))
+			f.SetCellStyle(sheetName, cellName, cellName, style)
+			if i == 0 && hasLink {
+				f.SetCellHyperLink(sheetName, cellName, pt.Links[0].URL, "External")
+			}
+			row++
 		}
-		return row + 1, nil
+		return row, nil
 	}
 
-	hasLink := len(pt.Links) > 0
+	// Plain text path (no formatting)
 	var linkStyle int
 	if hasLink {
 		linkStyle, err = stylist.HyperlinkStyle()
@@ -502,34 +524,36 @@ func renderPlainText(f *excelize.File, stylist *Stylist, row int, pt parser.Plai
 	return row, nil
 }
 
-// fetchImage downloads an image from a URL and returns the local path.
-func fetchImage(url string) (string, error) {
+// fetchImage downloads an image from a URL and returns the local path and the
+// temporary directory that was created (so the caller can clean it up later).
+func fetchImage(url string) (imgPath string, tmpDir string, err error) {
 	resp, err := http.Get(url)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
+		return "", "", fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
 	}
 
-	if err := os.MkdirAll("tmp", 0o755); err != nil {
-		return "", err
+	tmpDir, err = os.MkdirTemp("", "md2xls-")
+	if err != nil {
+		return "", "", err
 	}
 
-	tmpPath := filepath.Join("tmp", path.Base(url))
+	tmpPath := filepath.Join(tmpDir, path.Base(url))
 	out, err := os.Create(tmpPath)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer out.Close()
 
 	if _, err := io.Copy(out, resp.Body); err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return tmpPath, nil
+	return tmpPath, tmpDir, nil
 }
 
 func openImage(p string) (image.Image, error) {

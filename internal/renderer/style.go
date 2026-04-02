@@ -21,7 +21,7 @@ func (s *Stylist) H1Style() (int, error) {
 	return s.getOrCreate("h1", &excelize.Style{
 		Font: &excelize.Font{
 			Bold:   true,
-			Size:   24,
+			Size:   s.cfg.HeadingFontSize.H1,
 			Family: s.cfg.Text.Family,
 		},
 		Alignment: &excelize.Alignment{
@@ -35,7 +35,7 @@ func (s *Stylist) H2Style() (int, error) {
 	return s.getOrCreate("h2", &excelize.Style{
 		Font: &excelize.Font{
 			Bold:   true,
-			Size:   20,
+			Size:   s.cfg.HeadingFontSize.H2,
 			Family: s.cfg.Text.Family,
 		},
 		Border: []excelize.Border{
@@ -52,7 +52,7 @@ func (s *Stylist) H3Style() (int, error) {
 	return s.getOrCreate("h3", &excelize.Style{
 		Font: &excelize.Font{
 			Bold:   true,
-			Size:   16,
+			Size:   s.cfg.HeadingFontSize.H3,
 			Family: s.cfg.Text.Family,
 		},
 		Alignment: &excelize.Alignment{
@@ -66,7 +66,7 @@ func (s *Stylist) H4Style() (int, error) {
 	return s.getOrCreate("h4", &excelize.Style{
 		Font: &excelize.Font{
 			Bold:   true,
-			Size:   14,
+			Size:   s.cfg.HeadingFontSize.H4,
 			Family: s.cfg.Text.Family,
 		},
 		Alignment: &excelize.Alignment{
@@ -80,7 +80,7 @@ func (s *Stylist) H5Style() (int, error) {
 	return s.getOrCreate("h5", &excelize.Style{
 		Font: &excelize.Font{
 			Bold:   true,
-			Size:   12,
+			Size:   s.cfg.HeadingFontSize.H5,
 			Family: s.cfg.Text.Family,
 		},
 		Alignment: &excelize.Alignment{
@@ -95,7 +95,7 @@ func (s *Stylist) H6Style() (int, error) {
 		Font: &excelize.Font{
 			Bold:   true,
 			Italic: true,
-			Size:   11,
+			Size:   s.cfg.HeadingFontSize.H6,
 			Family: s.cfg.Text.Family,
 		},
 		Alignment: &excelize.Alignment{
