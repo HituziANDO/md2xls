@@ -285,4 +285,4 @@ This produces binaries for linux/darwin/windows on amd64 and arm64 in the `dist/
 
 ## License
 
-See the [LICENSE](LICENSE) file for details (if available).
+MIT
