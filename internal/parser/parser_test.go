@@ -1459,3 +1459,38 @@ func TestParse_PlainTextRichText(t *testing.T) {
 		t.Error("expected at least one bold segment in RichText")
 	}
 }
+
+// BUG-H01: inline code containing * must not be parsed as emphasis
+func TestParseRichText_InlineCodeNotEmphasis(t *testing.T) {
+	segs := ParseRichText("Use `*ptr*` here")
+	for _, seg := range segs {
+		if seg.Italic || seg.Bold {
+			t.Errorf("expected no emphasis inside inline code, got bold=%v italic=%v text=%q", seg.Bold, seg.Italic, seg.Text)
+		}
+	}
+	// The inner text "*ptr*" should appear literally
+	combined := ""
+	for _, seg := range segs {
+		combined += seg.Text
+	}
+	if !strings.Contains(combined, "*ptr*") {
+		t.Errorf("expected literal *ptr* in output, got %q", combined)
+	}
+}
+
+func TestParseRichText_InlineCodeWithBoldOutside(t *testing.T) {
+	segs := ParseRichText("**bold** and `*code*`")
+	hasBold := false
+	for _, seg := range segs {
+		if seg.Bold && seg.Text == "bold" {
+			hasBold = true
+		}
+		// *code* inside backticks must not be italic
+		if seg.Text == "code" && seg.Italic {
+			t.Error("*code* inside backticks should not be italic")
+		}
+	}
+	if !hasBold {
+		t.Error("expected bold segment for **bold**")
+	}
+}

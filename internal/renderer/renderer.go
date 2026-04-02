@@ -27,6 +27,8 @@ const (
 	cellWidth = 20
 )
 
+var httpRegex = regexp.MustCompile(`^https?://`)
+
 // Renderer converts parsed Markdown components to an Excel file.
 type Renderer struct {
 	cfg config.Config
@@ -280,7 +282,6 @@ func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Tabl
 
 func renderImage(f *excelize.File, cellName string, row int, img parser.Image, srcDir string) (int, error) {
 	imgPath := filepath.Join(srcDir, img.Path)
-	httpRegex := regexp.MustCompile(`^https?://`)
 	if httpRegex.MatchString(img.Path) {
 		p, err := fetchImage(img.Path)
 		if err != nil {
@@ -368,20 +369,29 @@ func renderList(f *excelize.File, stylist *Stylist, row int, list parser.List) (
 		cellName, _ := excelize.JoinCellName("A", row)
 
 		prefix := strings.Repeat("    ", item.Indent)
-		var text string
 		if item.Checked != nil {
 			if *item.Checked {
-				text = fmt.Sprintf("%s☑ %s", prefix, item.Text)
+				prefix += "☑ "
 			} else {
-				text = fmt.Sprintf("%s☐ %s", prefix, item.Text)
+				prefix += "☐ "
 			}
 		} else if item.Ordered {
-			text = fmt.Sprintf("%s%d. %s", prefix, item.Number, item.Text)
+			prefix += fmt.Sprintf("%d. ", item.Number)
 		} else {
-			text = fmt.Sprintf("%s• %s", prefix, item.Text)
+			prefix += "• "
 		}
 
-		f.SetCellValue(sheetName, cellName, text)
+		if hasRichFormatting(item.RichText) {
+			runs := []excelize.RichTextRun{{
+				Font: &excelize.Font{Size: stylist.cfg.Text.Size, Family: stylist.cfg.Text.Family},
+				Text: prefix,
+			}}
+			runs = append(runs, toRichTextRuns(item.RichText, stylist.cfg)...)
+			f.SetCellRichText(sheetName, cellName, runs)
+		} else {
+			f.SetCellValue(sheetName, cellName, prefix+item.Text)
+		}
+
 		f.SetCellStyle(sheetName, cellName, cellName, style)
 		row++
 	}
@@ -425,15 +435,24 @@ func hasRichFormatting(segments []parser.RichTextSegment) bool {
 }
 
 func toRichTextRuns(segments []parser.RichTextSegment, cfg config.Config) []excelize.RichTextRun {
+	return toRichTextRunsWithLink(segments, cfg, false)
+}
+
+func toRichTextRunsWithLink(segments []parser.RichTextSegment, cfg config.Config, asLink bool) []excelize.RichTextRun {
 	var runs []excelize.RichTextRun
 	for _, seg := range segments {
+		font := &excelize.Font{
+			Size:   cfg.Text.Size,
+			Family: cfg.Text.Family,
+			Bold:   seg.Bold,
+			Italic: seg.Italic,
+		}
+		if asLink {
+			font.Color = "0563C1"
+			font.Underline = "single"
+		}
 		runs = append(runs, excelize.RichTextRun{
-			Font: &excelize.Font{
-				Size:   cfg.Text.Size,
-				Family: cfg.Text.Family,
-				Bold:   seg.Bold,
-				Italic: seg.Italic,
-			},
+			Font: font,
 			Text: seg.Text,
 		})
 	}
@@ -449,15 +468,11 @@ func renderPlainText(f *excelize.File, stylist *Stylist, row int, pt parser.Plai
 	// Use rich text rendering if text fits in one line and has formatting
 	if pt.RuneCount() <= maxChars && hasRichFormatting(pt.RichText) {
 		cellName, _ := excelize.JoinCellName("A", row)
-		f.SetCellRichText(sheetName, cellName, toRichTextRuns(pt.RichText, stylist.cfg))
+		hasLink := len(pt.Links) > 0
+		f.SetCellRichText(sheetName, cellName, toRichTextRunsWithLink(pt.RichText, stylist.cfg, hasLink))
 		f.SetCellStyle(sheetName, cellName, cellName, style)
-		if len(pt.Links) > 0 {
-			linkStyle, err := stylist.HyperlinkStyle()
-			if err != nil {
-				return row, err
-			}
+		if hasLink {
 			f.SetCellHyperLink(sheetName, cellName, pt.Links[0].URL, "External")
-			f.SetCellStyle(sheetName, cellName, cellName, linkStyle)
 		}
 		return row + 1, nil
 	}

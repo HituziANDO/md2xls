@@ -1,5 +1,5 @@
 src: sample/demo.md
-dst: sample/demo.xlsx
+dst: sample/output/demo.xlsx
 text:
   font:
     family: 游ゴシック Regular
@@ -9,3 +9,4 @@ code:
     family: Arial
     size: 10.5
 max_num_of_characters_per_line: 120
+heading_number: true

@@ -110,11 +110,11 @@ heading_number: true
 | `code.font.family` | string | `Arial` | Font family for code blocks |
 | `code.font.size` | float | `10.5` | Font size (pt) for code blocks |
 | `max_num_of_characters_per_line` | int | `120` | Maximum characters per line before wrapping |
-| `heading_number` | bool | `true` | Enable heading auto-numbering (1., 1.1., 1.1.1.) |
+| `heading_number` | bool | `true` | Enable heading auto-numbering for H1--H4 (1., 1.1., 1.1.1., 1.1.1.1.) |
 
 **Font application scope:**
 
-- `text.font` applies to: H1, H2, H3 headings, plain text, table headers, table cells, and list items
+- `text.font` applies to: H1--H6 headings, plain text, table headers, table cells, and list items
 - `code.font` applies to: code blocks
 
 Note: Heading font sizes are fixed (H1: 24pt, H2: 20pt, H3: 16pt, H4: 14pt, H5: 12pt, H6: 11pt) and not configurable. The `text.font.size` setting applies to body text, tables, and lists only.
@@ -123,14 +123,14 @@ Note: Heading font sizes are fixed (H1: 24pt, H2: 20pt, H3: 16pt, H4: 14pt, H5: 
 
 ### Headings (H1--H6)
 
-Headings are rendered with auto-numbering based on their hierarchy by default:
+Headings are rendered with auto-numbering based on their hierarchy by default. Auto-numbering applies to H1--H4; H5 and H6 are rendered without numbering:
 
 - `# Title` renders as `1. Title`
 - `## Section` renders as `1.1. Section`
 - `### Subsection` renders as `1.1.1. Subsection`
 - `#### Item` renders as `1.1.1.1. Item`
-- `##### SubItem` renders as `1.1.1.1.1. SubItem`
-- `###### Detail` renders as `1.1.1.1.1.1. Detail`
+- `##### SubItem` renders as `SubItem` (no numbering)
+- `###### Detail` renders as `Detail` (no numbering)
 
 Each heading level has distinct bold styling and font size (H1: 24pt, H2: 20pt, H3: 16pt, H4: 14pt, H5: 12pt, H6: 11pt italic) in the output.
 
@@ -226,7 +226,11 @@ When a line contains one or more links, the first link's URL is set as the cell'
 
 ### Inline formatting
 
-When a line fits within `max_num_of_characters_per_line`, bold (`**text**`) and italic (`*text*`) are rendered as Excel Rich Text with proper formatting in the cell. Combined `***bold italic***` is also supported.
+When a line fits within `max_num_of_characters_per_line`, bold (`**text**`) and italic (`*text*`) are rendered as Excel Rich Text with proper formatting in the cell. Combined `***bold italic***` is also supported. Inline formatting also applies to list items.
+
+Inline code (`` `text` ``) is protected from emphasis parsing: asterisks inside backticks (e.g., `` `*ptr` ``, `` `**kwargs` ``) are treated as literal text, not as bold or italic markers.
+
+When a line contains both rich text formatting and a link, the entire cell is styled as a hyperlink (blue underlined text) while preserving bold/italic formatting within the rich text runs.
 
 For lines that require splitting across multiple rows, inline formatting is stripped to plain text:
 

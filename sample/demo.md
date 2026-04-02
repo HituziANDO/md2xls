@@ -6,7 +6,7 @@ This document demonstrates every feature supported by md2xls. Use it to verify t
 
 ### Auto-numbered Headings
 
-Headings are automatically numbered based on hierarchy: H1 gets `1.`, H2 gets `1.1.`, and H3 gets `1.1.1.`. This numbering can be disabled via the `heading_number: false` config option or the `--no-heading-number` CLI flag.
+Headings are automatically numbered based on hierarchy: H1 gets `1.`, H2 gets `1.1.`, H3 gets `1.1.1.`, and H4 gets `1.1.1.1.`. H5 and H6 are rendered without numbering. This numbering can be disabled via the `heading_number: false` config option or the `--no-heading-number` CLI flag.
 
 #### H4 Item Heading
 
@@ -14,11 +14,11 @@ This is an H4 heading. It should be numbered `1.2.1.1.` in the output with 14pt 
 
 ##### H5 SubItem Heading
 
-This is an H5 heading. It should be numbered `1.2.1.1.1.` with 12pt bold font.
+This is an H5 heading. It is rendered without numbering, with 12pt bold font.
 
 ###### H6 Detail Heading
 
-This is an H6 heading. It should be numbered `1.2.1.1.1.1.` with 11pt bold italic font.
+This is an H6 heading. It is rendered without numbering, with 11pt bold italic font.
 
 #### Second H4
 
@@ -38,7 +38,7 @@ This H4 should be `1.2.2.1.`, not `1.2.2.3.`.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Headings | Supported | H1-H6 with auto-numbering |
+| Headings | Supported | H1-H4 auto-numbered, H5-H6 unnumbered |
 | Tables | Supported | Header + data rows + alignment |
 | Code blocks | Supported | Fenced with language tag |
 | Blockquotes | Supported | Consecutive `>` lines grouped |
@@ -131,6 +131,9 @@ Some text between blockquotes.
 - First item
 - Second item
 - Third item with **bold** text
+- Fourth item with *italic* text
+- Fifth item with ***bold and italic*** combined
+- Sixth item has `inline code` in it
 
 ### Ordered List
 
@@ -184,6 +187,14 @@ Visit [Go official site](https://go.dev) for more information.
 
 This line has [multiple](https://example.com/1) links [inside](https://example.com/2) it.
 
+### Links with Rich Text (BUG-M01)
+
+**Important:** visit [the documentation](https://example.com/docs) for details.
+
+See *this [italic link](https://example.com/italic)* for an example.
+
+Check out ***[bold italic link](https://example.com/bolditalic)*** here.
+
 ## Inline Formatting (Rich Text)
 
 This text has **bold words** rendered in Excel with actual bold formatting.
@@ -197,6 +208,16 @@ This text has ***bold and italic*** rendered together in a single cell.
 Here is a mix of **bold**, *italic*, and `inline code` in one line.
 
 Plain text without any formatting markers stays as-is.
+
+### Inline Code with Asterisks (BUG-H01)
+
+Use `*ptr` to dereference a pointer in C.
+
+The flags `**kwargs` and `*args` are Python conventions.
+
+Mixed: **bold text** then `*literal asterisk*` then *italic text*.
+
+Complex: **bold** and `**not bold**` and *italic* and `*not italic*` together.
 
 ## HTML Entities
 
@@ -262,11 +283,11 @@ This should be `2.1.1.1.` — verifying counters reset properly across H1 bounda
 
 ##### Even Deeper
 
-Numbered `2.1.1.1.1.`.
+Rendered without numbering (H5 is unnumbered).
 
 ###### Maximum Depth
 
-Numbered `2.1.1.1.1.1.`.
+Rendered without numbering (H6 is unnumbered).
 
 ### Another Subsection
 
@@ -276,15 +297,16 @@ And this should be `2.1.2.`.
 
 This demo file covers all md2xls features:
 
-1. Headings (H1-H6) with auto-numbering
+1. Headings (H1-H4 auto-numbered, H5-H6 unnumbered)
 2. Tables with column alignment (left, center, right)
 3. Fenced code blocks with language tags
 4. Blockquotes with styling
 5. Images (Markdown and HTML syntax)
-6. Lists (ordered, unordered, nested)
+6. Lists (ordered, unordered, nested) with rich text formatting
 7. Task lists with checkboxes
-8. Links rendered as Excel hyperlinks
+8. Links rendered as Excel hyperlinks (with rich text support)
 9. Inline rich text formatting (bold, italic in Excel cells)
-10. HTML entity decoding
-11. Horizontal rules
-12. Word-boundary-aware text wrapping
+10. Inline code protection (asterisks inside backticks are not parsed as emphasis)
+11. HTML entity decoding
+12. Horizontal rules
+13. Word-boundary-aware text wrapping

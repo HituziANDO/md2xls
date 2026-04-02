@@ -418,8 +418,8 @@ func parseTableAlignments(s string) []string {
 }
 
 // ParseRichText parses inline bold/italic formatting and returns segments.
+// Inline code regions (backtick-delimited) are protected from emphasis parsing.
 func ParseRichText(s string) []RichTextSegment {
-	s = inlineCodeRegex.ReplaceAllString(s, "$1")
 	s = linkRegex.ReplaceAllString(s, "$1")
 	s = html.UnescapeString(s)
 
@@ -442,6 +442,15 @@ func ParseRichText(s string) []RichTextSegment {
 			}
 		}
 		return string(bs)
+	}
+
+	// First pass: find inline code spans and mark them as used so that
+	// emphasis markers inside backticks are treated as literal text.
+	for _, idx := range inlineCodeRegex.FindAllStringSubmatchIndex(s, -1) {
+		for k := idx[0]; k < idx[1]; k++ {
+			used[k] = true
+		}
+		spans = append(spans, span{start: idx[0], end: idx[1], text: s[idx[2]:idx[3]]})
 	}
 
 	findSpans := func(re *regexp.Regexp, bold, italic bool) {
