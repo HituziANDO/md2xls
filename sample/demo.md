@@ -118,15 +118,15 @@ Some text between blockquotes.
 
 ### Markdown Image Syntax
 
-![Sample Image](https://via.placeholder.com/300x100.png)
+![Sample Image](./assets/md2xls.png)
 
 ### HTML Image Syntax
 
-<img src="https://via.placeholder.com/200x80.png">
+<img src="./assets/md2xls.png">
 
 ### Image with Title Attribute
 
-![Placeholder](https://via.placeholder.com/150x50.png "This title should be ignored")
+![Placeholder](./assets/md2xls.png "This title should be ignored")
 
 ## Lists
 
@@ -139,8 +139,8 @@ Some text between blockquotes.
 - Fifth item with ***bold and italic*** combined
 - Sixth item has `inline code` in it (rendered with code font)
 - Seventh item with ~~strikethrough~~ text
-- Eighth item with __underscore bold__ text
-- Ninth item with _underscore italic_ text
+- Eighth item with **underscore bold** text
+- Ninth item with *underscore italic* text
 
 ### Ordered List
 
@@ -238,15 +238,15 @@ Here is a mix of **bold**, *italic*, ~~strikethrough~~, and `inline code` in one
 
 ### Underscore Emphasis
 
-This text has __underscore bold__ rendered the same as **asterisk bold**.
+This text has **underscore bold** rendered the same as **asterisk bold**.
 
-This text has _underscore italic_ rendered the same as *asterisk italic*.
+This text has *underscore italic* rendered the same as *asterisk italic*.
 
-This text has ___underscore bold italic___ rendered the same as ***asterisk bold italic***.
+This text has ***underscore bold italic*** rendered the same as ***asterisk bold italic***.
 
 The word snake_case_name should NOT be treated as italic — word boundaries are respected.
 
-Mixed: **asterisk bold** and __underscore bold__ in the same line.
+Mixed: **asterisk bold** and **underscore bold** in the same line.
 
 ### Inline Code with Code Font
 
