@@ -1,5 +1,7 @@
 # md2xls
 
+![md2xls image](./sample/assets/md2xls.png)
+
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://golang.org)
 
 A CLI tool that converts Markdown files to Excel (.xlsx) documents.
@@ -8,7 +10,7 @@ A CLI tool that converts Markdown files to Excel (.xlsx) documents.
 
 md2xls reads a Markdown file, parses its structure, and produces a styled Excel workbook. This is useful when you need to share design documents, specifications, or other technical content as Excel files -- a common requirement in organizations where Markdown is used for authoring but Excel is expected for delivery or review.
 
-The tool preserves document structure including headings with auto-numbering, tables, code blocks, blockquotes, images, links (as Excel hyperlinks), and lists, rendering each element with appropriate Excel styling. HTML entities are automatically decoded.
+The tool preserves document structure including headings with auto-numbering, tables (with rich text formatting in cells), code blocks, blockquotes, images, links and autolinks (as Excel hyperlinks), and lists, rendering each element with appropriate Excel styling. Inline formatting (bold, italic, strikethrough, code font) is rendered as Excel Rich Text. HTML entities and comments are automatically handled.
 
 ## Installation
 
@@ -108,6 +110,7 @@ code:
 max_num_of_characters_per_line: 100
 heading_number: true
 sheet_name: Sheet1
+table_merge_threshold: 80
 heading_font_size:
   h1: 24
   h2: 20
@@ -141,7 +144,7 @@ heading_font_size:
 **Font application scope:**
 
 - `text.font` applies to: H1--H6 headings, plain text, table headers, table cells, and list items
-- `code.font` applies to: code blocks
+- `code.font` applies to: code blocks and inline code (`` `text` ``)
 
 Note: Heading font sizes default to H1: 24pt, H2: 20pt, H3: 16pt, H4: 14pt, H5: 12pt, H6: 11pt. They can be customized via the `heading_font_size` config. The `text.font.size` setting applies to body text, tables, and lists only.
 
@@ -164,7 +167,7 @@ To disable auto-numbering, set `heading_number: false` in the configuration file
 
 ### Tables
 
-Markdown tables are parsed and rendered with bordered cells, a shaded header row, and auto-sizing for wide columns (columns exceeding 80 bytes are merged across two Excel columns).
+Markdown tables are parsed and rendered with bordered cells, a shaded header row, and auto-sizing for wide columns (columns exceeding `table_merge_threshold` bytes are merged across two Excel columns).
 
 ```markdown
 | Header 1 | Header 2 |
@@ -177,6 +180,8 @@ Column alignment is supported via the separator row:
 - `:---` or `---` for left alignment (default)
 - `:---:` for center alignment
 - `---:` for right alignment
+
+Inline formatting in table cells is preserved as Excel Rich Text: `**bold**`, `*italic*`, `` `code` ``, `~~strikethrough~~`, and `__underscore__` are rendered with their respective styles in both header and data cells.
 
 ### Code blocks
 
@@ -209,7 +214,7 @@ Both HTML `<img>` tags and Markdown image syntax are supported:
 ```
 
 - **Local images**: resolved relative to the Markdown file's directory
-- **Remote images** (HTTP/HTTPS): downloaded automatically to a `tmp/` directory
+- **Remote images** (HTTP/HTTPS): downloaded automatically to a temporary directory (cleaned up after rendering)
 - **Supported formats**: PNG, JPEG, GIF (SVG is not supported)
 - Images are scaled to fit within the sheet and rendered with Lanczos3 resampling for quality
 
@@ -304,6 +309,10 @@ The following Markdown features are not currently supported:
 
 - SVG images
 - Nested tables
+- Setext-style headings (`Heading\n=======`; use ATX `#` syntax)
+- Reference links (`[text][id]`) and footnotes (`[^1]`)
+- Backslash escapes (`\*not italic\*`)
+- Inline HTML tags (`<strong>`, `<br>`, `<a>`; only `<img>` is supported)
 
 ## Development
 
