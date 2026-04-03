@@ -20,6 +20,9 @@ import (
 	"github.com/HituziANDO/md2xls/internal/parser"
 	"github.com/nfnt/resize"
 	"github.com/xuri/excelize/v2"
+
+	"archive/zip"
+	"encoding/xml"
 )
 
 const cellWidth = 20
@@ -133,6 +136,11 @@ func (r *Renderer) Render(components []parser.Component) error {
 
 	if err := f.SaveAs(cfg.Dst); err != nil {
 		return fmt.Errorf("save file: %w", err)
+	}
+
+	// Set workbook window size (excelize has no public API for this)
+	if err := setWorkbookWindowSize(cfg.Dst, 19200, 28800); err != nil { // 960x1440
+		return fmt.Errorf("set window size: %w", err)
 	}
 
 	// Clean up temporary directories used for downloaded images.
@@ -581,4 +589,89 @@ func openImage(p string) (image.Image, error) {
 		return nil, err
 	}
 	return img, nil
+}
+
+// setWorkbookWindowSize rewrites the bookViews/workbookView element in
+// xl/workbook.xml inside the given .xlsx file to set windowWidth and
+// windowHeight. Excel's default is typically ~16000x8000 twips; larger
+// values open the workbook in a bigger window.
+func setWorkbookWindowSize(xlsxPath string, width, height int) error {
+	// Read the existing zip
+	data, err := os.ReadFile(xlsxPath)
+	if err != nil {
+		return err
+	}
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return err
+	}
+
+	// Write a new zip, patching xl/workbook.xml
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+
+	for _, zf := range zr.File {
+		rc, err := zf.Open()
+		if err != nil {
+			return err
+		}
+		content, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return err
+		}
+
+		if zf.Name == "xl/workbook.xml" {
+			content = patchBookViewsXML(content, width, height)
+		}
+
+		w, err := zw.CreateHeader(&zf.FileHeader)
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(content); err != nil {
+			return err
+		}
+	}
+
+	if err := zw.Close(); err != nil {
+		return err
+	}
+
+	return os.WriteFile(xlsxPath, buf.Bytes(), 0o644)
+}
+
+// patchBookViewsXML patches windowWidth and windowHeight attributes in the
+// workbookView element of xl/workbook.xml.
+func patchBookViewsXML(xmlData []byte, width, height int) []byte {
+	type workbookView struct {
+		XMLName xml.Name   `xml:"workbookView"`
+		Attrs   []xml.Attr `xml:",any,attr"`
+	}
+	type bookViews struct {
+		XMLName xml.Name       `xml:"bookViews"`
+		Views   []workbookView `xml:"workbookView"`
+	}
+
+	// Use simple string replacement to avoid full XML round-trip which
+	// could lose namespace prefixes or ordering.
+	s := string(xmlData)
+
+	// If windowWidth already exists, replace it
+	if strings.Contains(s, "windowWidth=") {
+		re := regexp.MustCompile(`windowWidth="[^"]*"`)
+		s = re.ReplaceAllString(s, fmt.Sprintf(`windowWidth="%d"`, width))
+	} else {
+		// Insert before the closing of workbookView
+		s = strings.Replace(s, "<workbookView", fmt.Sprintf(`<workbookView windowWidth="%d"`, width), 1)
+	}
+
+	if strings.Contains(s, "windowHeight=") {
+		re := regexp.MustCompile(`windowHeight="[^"]*"`)
+		s = re.ReplaceAllString(s, fmt.Sprintf(`windowHeight="%d"`, height))
+	} else {
+		s = strings.Replace(s, "<workbookView", fmt.Sprintf(`<workbookView windowHeight="%d"`, height), 1)
+	}
+
+	return []byte(s)
 }
