@@ -239,7 +239,11 @@ func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Tabl
 
 		colName, _ := excelize.ColumnNumberToName(colNum + colOffset)
 		cellName, _ := excelize.JoinCellName(colName, row)
-		f.SetCellValue(sheetName, cellName, cell)
+		if i < len(table.HeaderRichText) && hasRichFormatting(table.HeaderRichText[i]) {
+			f.SetCellRichText(sheetName, cellName, toRichTextRuns(table.HeaderRichText[i], stylist.cfg))
+		} else {
+			f.SetCellValue(sheetName, cellName, cell)
+		}
 
 		if i < len(maxBytes) && maxBytes[i] > mergeThreshold {
 			colName2, _ := excelize.ColumnNumberToName(colNum + colOffset + 1)
@@ -255,7 +259,7 @@ func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Tabl
 	row++
 
 	// Data rows
-	for _, rows := range table.Data {
+	for ri, rows := range table.Data {
 		colOffset = 0
 		for i, cell := range rows {
 			align := "center"
@@ -265,7 +269,11 @@ func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Tabl
 
 			colName, _ := excelize.ColumnNumberToName(colNum + colOffset)
 			cellName, _ := excelize.JoinCellName(colName, row)
-			f.SetCellValue(sheetName, cellName, cell)
+			if ri < len(table.DataRichText) && i < len(table.DataRichText[ri]) && hasRichFormatting(table.DataRichText[ri][i]) {
+				f.SetCellRichText(sheetName, cellName, toRichTextRuns(table.DataRichText[ri][i], stylist.cfg))
+			} else {
+				f.SetCellValue(sheetName, cellName, cell)
+			}
 
 			if i < len(maxBytes) && maxBytes[i] > mergeThreshold {
 				mrgStyle, err := stylist.TableMergeCellStyleAligned(align)

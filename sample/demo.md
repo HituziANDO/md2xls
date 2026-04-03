@@ -62,6 +62,19 @@ This H4 should be `1.2.2.1.`, not `1.2.2.3.`.
 | 2 | Bob | 82 | B |
 | 3 | Charlie | 78 | C+ |
 
+### Table with Inline Formatting
+
+| Syntax | Example | Result |
+|--------|---------|--------|
+| Bold | **bold text** | Markers stripped |
+| Italic | *italic text* | Markers stripped |
+| Inline code | `code text` | Markers stripped |
+| Strikethrough | ~~deleted~~ | Markers stripped |
+| Underscore bold | __bold__ | Markers stripped |
+| Link | [example](https://example.com) | Link text only |
+| Mixed | **bold** and `code` | Both stripped |
+| HTML entity | `&amp;` &rarr; `&` | Decoded |
+
 ### Wide Column Table
 
 | ID | Description |

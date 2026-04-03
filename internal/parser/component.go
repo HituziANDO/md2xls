@@ -292,13 +292,15 @@ func SplitRichTextPer(segments []RichTextSegment, count int) [][]RichTextSegment
 }
 
 type Table struct {
-	Header     []string
-	Data       [][]string
-	Alignments []string
-	Chapter    int
-	Section    int
-	Term       int
-	Line       int
+	Header         []string
+	HeaderRichText [][]RichTextSegment
+	Data           [][]string
+	DataRichText   [][][]RichTextSegment
+	Alignments     []string
+	Chapter        int
+	Section        int
+	Term           int
+	Line           int
 }
 
 func (t Table) ToString() string {

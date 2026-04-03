@@ -344,14 +344,15 @@ func Parse(text string) []Component {
 			})
 		} else if tableRegex.MatchString(line) {
 			str := strings.TrimSpace(line)
-			cells := splitTableRow(str)
+			cells, richTexts := splitTableRow(str)
 			if tableRow == 0 {
 				t := Table{
-					Header:  cells,
-					Line:    lineNum,
-					Chapter: chapter,
-					Section: section,
-					Term:    term,
+					Header:         cells,
+					HeaderRichText: richTexts,
+					Line:           lineNum,
+					Chapter:        chapter,
+					Section:        section,
+					Term:           term,
 				}
 				table = &t
 				res = append(res, &t)
@@ -362,6 +363,7 @@ func Parse(text string) []Component {
 				}
 			} else if table != nil {
 				table.Data = append(table.Data, cells)
+				table.DataRichText = append(table.DataRichText, richTexts)
 			}
 			tableRow++
 		} else if m := mdImgRegex.FindStringSubmatch(line); m != nil {
@@ -434,8 +436,8 @@ func Parse(text string) []Component {
 }
 
 // splitTableRow splits a Markdown table row by | and trims each cell.
-func splitTableRow(s string) []string {
-	// Remove leading and trailing |
+// Returns plain text cells and corresponding rich text segments.
+func splitTableRow(s string) ([]string, [][]RichTextSegment) {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "|") {
 		s = s[1:]
@@ -445,10 +447,13 @@ func splitTableRow(s string) []string {
 	}
 	parts := strings.Split(s, "|")
 	cells := make([]string, len(parts))
+	richTexts := make([][]RichTextSegment, len(parts))
 	for i, p := range parts {
-		cells[i] = html.UnescapeString(strings.TrimSpace(p))
+		trimmed := strings.TrimSpace(p)
+		cells[i] = StripInlineFormatting(trimmed)
+		richTexts[i] = ParseRichText(trimmed)
 	}
-	return cells
+	return cells, richTexts
 }
 
 // parseTableAlignments parses alignment markers from a Markdown table separator row.

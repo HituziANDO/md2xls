@@ -2040,3 +2040,83 @@ func TestParse_SingleAndMultiLineHTMLCommentsMixed(t *testing.T) {
 		t.Errorf("expected 3 PlainText (A, B, C), got %d: %v", len(texts), texts)
 	}
 }
+
+// --- Table cell inline formatting ---
+
+func TestParse_TableCellBold(t *testing.T) {
+	input := "| Header |\n| --- |\n| **bold** |"
+	comps := Parse(input)
+	var table *Table
+	for _, c := range comps {
+		if tp, ok := c.(*Table); ok {
+			table = tp
+			break
+		}
+	}
+	if table == nil {
+		t.Fatal("expected a Table component")
+	}
+	if table.Data[0][0] != "bold" {
+		t.Errorf("Data[0][0]: got %q, want %q", table.Data[0][0], "bold")
+	}
+}
+
+func TestParse_TableCellInlineCode(t *testing.T) {
+	input := "| Header |\n| --- |\n| `code` |"
+	comps := Parse(input)
+	var table *Table
+	for _, c := range comps {
+		if tp, ok := c.(*Table); ok {
+			table = tp
+			break
+		}
+	}
+	if table == nil {
+		t.Fatal("expected a Table component")
+	}
+	if table.Data[0][0] != "code" {
+		t.Errorf("Data[0][0]: got %q, want %q", table.Data[0][0], "code")
+	}
+}
+
+func TestParse_TableCellMixedFormatting(t *testing.T) {
+	input := "| A | B |\n| --- | --- |\n| **bold** and `code` | ~~struck~~ |"
+	comps := Parse(input)
+	var table *Table
+	for _, c := range comps {
+		if tp, ok := c.(*Table); ok {
+			table = tp
+			break
+		}
+	}
+	if table == nil {
+		t.Fatal("expected a Table component")
+	}
+	if table.Data[0][0] != "bold and code" {
+		t.Errorf("Data[0][0]: got %q, want %q", table.Data[0][0], "bold and code")
+	}
+	if table.Data[0][1] != "struck" {
+		t.Errorf("Data[0][1]: got %q, want %q", table.Data[0][1], "struck")
+	}
+}
+
+func TestParse_TableHeaderFormatting(t *testing.T) {
+	input := "| **Bold Header** | `Code Header` |\n| --- | --- |\n| data | data |"
+	comps := Parse(input)
+	var table *Table
+	for _, c := range comps {
+		if tp, ok := c.(*Table); ok {
+			table = tp
+			break
+		}
+	}
+	if table == nil {
+		t.Fatal("expected a Table component")
+	}
+	if table.Header[0] != "Bold Header" {
+		t.Errorf("Header[0]: got %q, want %q", table.Header[0], "Bold Header")
+	}
+	if table.Header[1] != "Code Header" {
+		t.Errorf("Header[1]: got %q, want %q", table.Header[1], "Code Header")
+	}
+}
