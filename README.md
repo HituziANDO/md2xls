@@ -1,5 +1,7 @@
 # md2xls
 
+[日本語版 README はこちら](./docs/README_ja.md)
+
 ![md2xls image](./sample/assets/md2xls.png)
 
 [![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://golang.org)
