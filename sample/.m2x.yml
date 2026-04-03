@@ -2,15 +2,15 @@
 # See https://github.com/HituziANDO/md2xls for full documentation.
 
 # Input Markdown file path
-src: README.md
+src: demo.md
 
 # Output Excel file path
-dst: README.xlsx
+dst: output/demo.xlsx
 
 # Font settings for body text, headings, tables, and list items
 text:
   font:
-    family: Meiryo UI
+    family: 游ゴシック Regular
     size: 11
 
 # Font settings for code blocks and inline code
@@ -28,11 +28,11 @@ max_num_of_characters_per_line: 120
 heading_number: true
 
 # Excel sheet name
-sheet_name: Sheet1
+sheet_name: Sample
 
 # Heading font sizes (pt) for each level
 heading_font_size:
-  h1: 24
+  h1: 32
   h2: 20
   h3: 16
   h4: 14

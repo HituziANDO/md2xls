@@ -25,7 +25,7 @@ import (
 const cellWidth = 20
 
 var (
-	sheetName = "doc"
+	sheetName = "Sheet1"
 	httpRegex = regexp.MustCompile(`^https?://`)
 )
 
@@ -47,13 +47,18 @@ func (r *Renderer) Render(components []parser.Component) error {
 	f := excelize.NewFile()
 	defer f.Close()
 
-	idx, err := f.NewSheet(sheetName)
-	if err != nil {
-		return fmt.Errorf("create sheet: %w", err)
-	}
-	f.SetActiveSheet(idx)
-	if err := f.DeleteSheet("Sheet1"); err != nil {
-		return fmt.Errorf("delete default sheet: %w", err)
+	if sheetName == "Sheet1" {
+		// NewFile already creates "Sheet1"; just use it
+		f.SetActiveSheet(0)
+	} else {
+		idx, err := f.NewSheet(sheetName)
+		if err != nil {
+			return fmt.Errorf("create sheet: %w", err)
+		}
+		f.SetActiveSheet(idx)
+		if err := f.DeleteSheet("Sheet1"); err != nil {
+			return fmt.Errorf("delete default sheet: %w", err)
+		}
 	}
 
 	stylist := NewStylist(f, cfg)

@@ -36,6 +36,16 @@ Pre-built binaries for Linux, macOS, and Windows (amd64/arm64) are available fro
 
 ## Usage
 
+### Initialize a project
+
+Generate a `.m2x.yml` configuration file with default values in the current directory:
+
+```sh
+md2xls init
+```
+
+If `.m2x.yml` already exists, the command exits immediately without overwriting it.
+
 ### Basic usage
 
 Run `md2xls` in a directory containing a `.m2x.yml` configuration file:
@@ -97,7 +107,7 @@ code:
     size: 10.5
 max_num_of_characters_per_line: 100
 heading_number: true
-sheet_name: doc
+sheet_name: Sheet1
 heading_font_size:
   h1: 24
   h2: 20
@@ -119,7 +129,7 @@ heading_font_size:
 | `code.font.size` | float | `10.5` | Font size (pt) for code blocks and inline code |
 | `max_num_of_characters_per_line` | int | `120` | Maximum characters per line before wrapping |
 | `heading_number` | bool | `true` | Enable heading auto-numbering for H1--H4 (1., 1.1., 1.1.1., 1.1.1.1.) |
-| `sheet_name` | string | `doc` | Excel sheet name |
+| `sheet_name` | string | `Sheet1` | Excel sheet name |
 | `heading_font_size.h1` | float | `24` | Font size (pt) for H1 headings |
 | `heading_font_size.h2` | float | `20` | Font size (pt) for H2 headings |
 | `heading_font_size.h3` | float | `16` | Font size (pt) for H3 headings |

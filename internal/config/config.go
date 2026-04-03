@@ -75,7 +75,7 @@ func DefaultConfig() Config {
 		},
 		MaxNumOfCharactersPerLine: 120,
 		HeadingNumber:             true,
-		SheetName:                 "doc",
+		SheetName:                 "Sheet1",
 		HeadingFontSize: HeadingFontSize{
 			H1: 24,
 			H2: 20,

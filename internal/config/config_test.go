@@ -292,8 +292,8 @@ func TestLoad_HeadingNumberDefault(t *testing.T) {
 
 func TestDefaultConfig_SheetName(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.SheetName != "doc" {
-		t.Errorf("SheetName: got %q, want %q", cfg.SheetName, "doc")
+	if cfg.SheetName != "Sheet1" {
+		t.Errorf("SheetName: got %q, want %q", cfg.SheetName, "Sheet1")
 	}
 }
 
@@ -324,8 +324,8 @@ func TestLoad_SheetNameDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.SheetName != "doc" {
-		t.Errorf("SheetName: got %q, want %q (default)", cfg.SheetName, "doc")
+	if cfg.SheetName != "Sheet1" {
+		t.Errorf("SheetName: got %q, want %q (default)", cfg.SheetName, "Sheet1")
 	}
 }
 

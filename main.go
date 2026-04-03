@@ -21,6 +21,11 @@ func main() {
 }
 
 func run() error {
+	// Handle subcommands before flag parsing
+	if len(os.Args) > 1 && os.Args[1] == "init" {
+		return runInit()
+	}
+
 	var (
 		cfgPath         string
 		src             string
@@ -74,5 +79,62 @@ func run() error {
 	}
 
 	fmt.Printf("Successfully converted %s → %s\n", cfg.Src, cfg.Dst)
+	return nil
+}
+
+const defaultConfigFile = ".m2x.yml"
+
+func runInit() error {
+	if _, err := os.Stat(defaultConfigFile); err == nil {
+		fmt.Fprintf(os.Stderr, "%s already exists\n", defaultConfigFile)
+		return nil
+	}
+
+	const content = `# md2xls configuration file
+# See https://github.com/HituziANDO/md2xls for full documentation.
+
+# Input Markdown file path
+src: README.md
+
+# Output Excel file path
+dst: README.xlsx
+
+# Font settings for body text, headings, tables, and list items
+text:
+  font:
+    family: Meiryo UI
+    size: 11
+
+# Font settings for code blocks and inline code
+code:
+  font:
+    family: Arial
+    size: 10.5
+
+# Maximum characters per line before wrapping into multiple rows
+max_num_of_characters_per_line: 120
+
+# Enable heading auto-numbering for H1-H4 (e.g. 1., 1.1., 1.1.1., 1.1.1.1.)
+# H5 and H6 are always rendered without numbering.
+# Can also be disabled with the --no-heading-number CLI flag.
+heading_number: true
+
+# Excel sheet name
+sheet_name: Sheet1
+
+# Heading font sizes (pt) for each level
+heading_font_size:
+  h1: 24
+  h2: 20
+  h3: 16
+  h4: 14
+  h5: 12
+  h6: 11
+`
+
+	if err := os.WriteFile(defaultConfigFile, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", defaultConfigFile, err)
+	}
+
 	return nil
 }
