@@ -45,4 +45,4 @@ changelog:
       order: 999
 
 release:
-  disable: true
+  draft: false
