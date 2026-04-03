@@ -98,7 +98,7 @@ func (r *Renderer) Render(components []parser.Component) error {
 		case parser.H6:
 			rowCur, err = renderH6(f, stylist, cellName, rowCur, c)
 		case *parser.Table:
-			rowCur, err = renderTable(f, stylist, rowCur, c)
+			rowCur, err = renderTable(f, stylist, rowCur, c, cfg.TableMergeThreshold)
 		case parser.Image:
 			var tmpDir string
 			rowCur, tmpDir, err = renderImage(f, cellName, rowCur, c, srcDir)
@@ -220,7 +220,7 @@ func renderH2(f *excelize.File, stylist *Stylist, cellName string, row int, h pa
 	return row + 1, nil
 }
 
-func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Table) (int, error) {
+func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Table, mergeThreshold int) (int, error) {
 	maxBytes := table.MaxColDataBytes()
 
 	colNum := 1
@@ -241,7 +241,7 @@ func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Tabl
 		cellName, _ := excelize.JoinCellName(colName, row)
 		f.SetCellValue(sheetName, cellName, cell)
 
-		if i < len(maxBytes) && maxBytes[i] > 80 {
+		if i < len(maxBytes) && maxBytes[i] > mergeThreshold {
 			colName2, _ := excelize.ColumnNumberToName(colNum + colOffset + 1)
 			cellName2, _ := excelize.JoinCellName(colName2, row)
 			f.MergeCell(sheetName, cellName, cellName2)
@@ -267,7 +267,7 @@ func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Tabl
 			cellName, _ := excelize.JoinCellName(colName, row)
 			f.SetCellValue(sheetName, cellName, cell)
 
-			if i < len(maxBytes) && maxBytes[i] > 80 {
+			if i < len(maxBytes) && maxBytes[i] > mergeThreshold {
 				mrgStyle, err := stylist.TableMergeCellStyleAligned(align)
 				if err != nil {
 					return row, err

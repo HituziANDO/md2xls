@@ -30,6 +30,7 @@ type Config struct {
 	HeadingNumber             bool            `yaml:"heading_number"`
 	HeadingFontSize           HeadingFontSize `yaml:"-"`
 	SheetName                 string          `yaml:"sheet_name"`
+	TableMergeThreshold       int             `yaml:"table_merge_threshold"`
 }
 
 // rawConfig mirrors the YAML structure with nested font objects.
@@ -51,6 +52,7 @@ type rawConfig struct {
 	MaxNumOfCharactersPerLine *int     `yaml:"max_num_of_characters_per_line"`
 	HeadingNumber             *bool   `yaml:"heading_number"`
 	SheetName                 *string `yaml:"sheet_name"`
+	TableMergeThreshold       *int    `yaml:"table_merge_threshold"`
 	HeadingFontSize           *struct {
 		H1 *float64 `yaml:"h1"`
 		H2 *float64 `yaml:"h2"`
@@ -76,6 +78,7 @@ func DefaultConfig() Config {
 		MaxNumOfCharactersPerLine: 120,
 		HeadingNumber:             true,
 		SheetName:                 "Sheet1",
+		TableMergeThreshold:       80,
 		HeadingFontSize: HeadingFontSize{
 			H1: 24,
 			H2: 20,
@@ -133,6 +136,9 @@ func Load(path string) (Config, error) {
 	}
 	if raw.SheetName != nil {
 		cfg.SheetName = *raw.SheetName
+	}
+	if raw.TableMergeThreshold != nil {
+		cfg.TableMergeThreshold = *raw.TableMergeThreshold
 	}
 	if raw.HeadingFontSize != nil {
 		if raw.HeadingFontSize.H1 != nil {

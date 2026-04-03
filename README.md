@@ -130,6 +130,7 @@ heading_font_size:
 | `max_num_of_characters_per_line` | int | `120` | Maximum characters per line before wrapping |
 | `heading_number` | bool | `true` | Enable heading auto-numbering for H1--H4 (1., 1.1., 1.1.1., 1.1.1.1.) |
 | `sheet_name` | string | `Sheet1` | Excel sheet name |
+| `table_merge_threshold` | int | `80` | Byte threshold for merging wide table columns across two Excel columns |
 | `heading_font_size.h1` | float | `24` | Font size (pt) for H1 headings |
 | `heading_font_size.h2` | float | `20` | Font size (pt) for H2 headings |
 | `heading_font_size.h3` | float | `16` | Font size (pt) for H3 headings |

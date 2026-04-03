@@ -122,6 +122,9 @@ heading_number: true
 # Excel sheet name
 sheet_name: Sheet1
 
+# Byte threshold for merging table columns (columns exceeding this are merged across two Excel columns)
+table_merge_threshold: 80
+
 # Heading font sizes (pt) for each level
 heading_font_size:
   h1: 24
