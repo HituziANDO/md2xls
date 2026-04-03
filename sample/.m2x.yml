@@ -30,6 +30,9 @@ heading_number: true
 # Excel sheet name
 sheet_name: Sample
 
+# Byte threshold for merging table columns (columns exceeding this are merged across two Excel columns)
+table_merge_threshold: 40
+
 # Heading font sizes (pt) for each level
 heading_font_size:
   h1: 32
