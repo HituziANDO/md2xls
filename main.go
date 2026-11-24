@@ -133,6 +133,24 @@ heading_font_size:
   h4: 14
   h5: 12
   h6: 11
+
+# Optional image policy. Defaults allow HTTP(S) and warn if an image fails.
+# images:
+#   local_only: false
+#   missing: warn
+
+# Optional individual column width overrides (Excel character units).
+# column_widths:
+#   A: 14
+#   B: 34
+
+# Optional print settings. Unset keys keep the default Excel layout.
+# print:
+#   paper: A4
+#   orientation: landscape
+#   fit_to_width: 1
+#   fit_to_height: 0  # 0 means no page limit on this axis
+#   area: A1:C40
 `
 
 	if err := os.WriteFile(defaultConfigFile, []byte(content), 0o644); err != nil {

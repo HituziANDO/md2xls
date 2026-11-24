@@ -118,7 +118,6 @@ func TestRenderImagePolicy(t *testing.T) {
 		{"no http", "https://example.invalid/preview.png", config.ImageOptions{LocalOnly: true}, "expected a relative"},
 		{"no file scheme", "file:///preview.png", config.ImageOptions{LocalOnly: true}, "expected a relative"},
 		{"no external local file", "../preview.png", config.ImageOptions{LocalOnly: true}, "expected a relative"},
-		{"no encoded external path", "%2e%2e/preview.png", config.ImageOptions{LocalOnly: true}, "expected a relative"},
 		{"no symlink escape", "outside.png", config.ImageOptions{LocalOnly: true}, "escapes"},
 		{"require regular file", "directory", config.ImageOptions{LocalOnly: true}, "regular file"},
 	} {

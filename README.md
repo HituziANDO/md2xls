@@ -155,6 +155,7 @@ Note: Heading font sizes default to H1: 24pt, H2: 20pt, H3: 16pt, H4: 14pt, H5: 
 
 These options apply to the generated sheet. Omit them to keep the default
 column widths, default print layout, and warning-and-skip behavior for missing images.
+The repository example and `md2xls init` include commented-out examples.
 PNG assets are embedded byte-for-byte, regardless of the file extension.
 
 ```yaml
@@ -184,20 +185,6 @@ print:
   `portrait` or `landscape`. A fit value of `0` leaves its dimension
   unlimited. When setting only one fit dimension, the other is unlimited.
   `print.area` optionally sets a sheet-local rectangular range.
-
-For example, export a fictional notification preferences screen with a
-local screenshot, or a CSV field specification from a Markdown table:
-
-```md
-# Inventory export CSV
-
-| Column | Example | Meaning |
-| --- | --- | --- |
-| item | Paper clips | Item name |
-| quantity | 12 | Units on hand |
-```
-
-This reads the Markdown table; it does not import or export a CSV file.
 
 
 ## Supported Markdown Features

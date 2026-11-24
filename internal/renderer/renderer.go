@@ -9,7 +9,6 @@ import (
 	_ "image/png"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -365,17 +364,22 @@ func renderImage(f *excelize.File, cellName string, row int, img parser.Image, s
 	}
 
 	options := &excelize.GraphicOptions{LockAspectRatio: true}
-	ext, paddingHeight := ".png", h/6
+	// Match the legacy display dimensions and padding without rerendering PNG.
+	displayWidth, displayHeight := max(1, int(w*1.8)), max(1, int(h*1.8))
+	paddingHeight := h / 2
+	useOriginalSize := displayWidth >= rect.Dx() && displayHeight >= rect.Dy()
+	if useOriginalSize {
+		displayWidth, displayHeight = rect.Dx(), rect.Dy()
+		paddingHeight = h / 6
+	}
+	ext := ".png"
 	if format == "png" {
-		// Scale the on-sheet drawing, not the embedded bytes.
-		options.ScaleX, options.ScaleY = scale, scale
+		options.ScaleX = float64(displayWidth) / oriW
+		options.ScaleY = float64(displayHeight) / oriH
 	} else {
-		// Keep the legacy display sizing and JPEG conversion for other formats.
-		resized := resize.Resize(uint(w*1.8), uint(h*1.8), oriImg, resize.Lanczos3)
-		paddingHeight = h / 2
-		if rect.In(resized.Bounds()) {
-			resized = oriImg
-			paddingHeight = h / 6
+		resized := oriImg
+		if !useOriginalSize {
+			resized = resize.Resize(uint(displayWidth), uint(displayHeight), oriImg, resize.Lanczos3)
 		}
 		var buf bytes.Buffer
 		if err := jpeg.Encode(&buf, resized, nil); err != nil {
@@ -396,9 +400,10 @@ func renderImage(f *excelize.File, cellName string, row int, img parser.Image, s
 }
 
 func localImage(name, dir string) ([]byte, error) {
-	ref, err := url.Parse(name)
-	if err != nil || ref.Scheme != "" || ref.Host != "" || ref.Path == "" ||
-		ref.Fragment != "" || ref.RawQuery != "" || strings.Contains(name, `\`) || !filepath.IsLocal(ref.Path) {
+	// Markdown supplies a filename here, not an escaped URL. Keep literal
+	// percent signs and other ordinary filename characters intact.
+	if strings.Contains(name, "://") || strings.HasPrefix(strings.ToLower(name), "file:") ||
+		strings.Contains(name, `\`) || !filepath.IsLocal(name) {
 		return nil, fmt.Errorf("expected a relative image path in the Markdown directory")
 	}
 	root, err := os.OpenRoot(dir)
@@ -406,14 +411,14 @@ func localImage(name, dir string) ([]byte, error) {
 		return nil, err
 	}
 	defer root.Close()
-	entry, err := root.Stat(ref.Path)
+	entry, err := root.Stat(name)
 	if err != nil {
 		return nil, err
 	}
 	if !entry.Mode().IsRegular() {
 		return nil, fmt.Errorf("image must be a regular file")
 	}
-	file, err := root.Open(ref.Path)
+	file, err := root.Open(name)
 	if err != nil {
 		return nil, err
 	}
