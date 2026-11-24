@@ -150,6 +150,33 @@ heading_font_size:
 
 注記：見出しフォントサイズのデフォルトはH1: 24pt、H2: 20pt、H3: 16pt、H4: 14pt、H5: 12pt、H6: 11ptです。`heading_font_size` 設定でカスタマイズ可能です。`text.font.size` 設定は本文、テーブル、リストにのみ適用されます。
 
+
+### Excel出力のオプション
+
+省略時は既定の列幅、印刷設定、画像がない場合に警告して続行する挙動を維持します。PNGは拡張子にかかわらず元のバイト列のまま埋め込みます。リポジトリの設定例と `md2xls init` では、これらの項目をコメントとして載せています。
+
+```yaml
+sheet_name: 在庫
+images:
+  local_only: true
+  missing: error
+column_widths:
+  A: 14
+  B: 34
+  C: 20
+print:
+  paper: A4
+  orientation: landscape
+  fit_to_width: 1
+  fit_to_height: 0
+  area: A1:C40
+```
+
+- `images.local_only`: Markdown と同じディレクトリ以下の相対パスに限定し、URL、ディレクトリ外を指すシンボリックリンク、欠落・不正な画像をエラーにします。URLを許可したまま欠落をエラーにするには `images.missing: error` だけ指定します。
+- `column_widths`: 大文字のExcel列名ごとに幅を指定します。単位はExcelの文字幅です。
+- `print.paper`: `A3`、`A4`、`Letter`、`Legal`。向きは `portrait` または `landscape` です。収めるページ数の `0` は制限なし、片方だけ指定するともう片方は制限なしです。`print.area` は省略可能な単一のセル範囲です。
+
+
 ## 対応しているMarkdown機能
 
 ### 見出し（H1〜H6）

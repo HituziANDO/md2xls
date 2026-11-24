@@ -329,3 +329,48 @@ func TestLoad_SheetNameDefault(t *testing.T) {
 	}
 }
 
+func TestLoadExportOptions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "spec.yml")
+	success := `images:
+  local_only: true
+  missing: error
+column_widths:
+  A: 15.5
+print:
+  paper: A4
+  orientation: landscape
+  fit_to_width: 1
+  fit_to_height: 0
+  area: A1:F40
+`
+	for _, tc := range []struct {
+		name, yaml string
+		wantError  bool
+	}{
+		{"valid options", success, false},
+		{"invalid image mode", "images: {missing: ignore}", true},
+		{"local policy cannot skip", "images: {local_only: true, missing: warn}", true},
+		{"invalid orientation", "print: {orientation: square}", true},
+		{"invalid paper", "print: {paper: Unknown}", true},
+		{"invalid fit", "print: {fit_to_width: -1}", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(tc.yaml), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("expected invalid config error")
+				}
+				return
+			}
+			if err != nil || !cfg.Images.LocalOnly || cfg.Images.Missing != "error" || cfg.ColumnWidths["A"] != 15.5 ||
+				cfg.Print.Orientation != "landscape" || cfg.Print.Paper != "A4" || cfg.Print.Area != "A1:F40" ||
+				cfg.Print.FitToWidth == nil || *cfg.Print.FitToWidth != 1 || cfg.Print.FitToHeight == nil || *cfg.Print.FitToHeight != 0 {
+				t.Fatalf("did not parse export settings: %+v, %v", cfg, err)
+			}
+		})
+	}
+}

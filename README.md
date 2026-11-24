@@ -150,6 +150,43 @@ heading_font_size:
 
 Note: Heading font sizes default to H1: 24pt, H2: 20pt, H3: 16pt, H4: 14pt, H5: 12pt, H6: 11pt. They can be customized via the `heading_font_size` config. The `text.font.size` setting applies to body text, tables, and lists only.
 
+
+### Optional export settings
+
+These options apply to the generated sheet. Omit them to keep the default
+column widths, default print layout, and warning-and-skip behavior for missing images.
+The repository example and `md2xls init` include commented-out examples.
+PNG assets are embedded byte-for-byte, regardless of the file extension.
+
+```yaml
+sheet_name: Inventory
+images:
+  local_only: true
+  missing: error
+column_widths:
+  A: 14
+  B: 34
+  C: 20
+print:
+  paper: A4
+  orientation: landscape
+  fit_to_width: 1
+  fit_to_height: 0
+  area: A1:C40
+```
+
+- `images.local_only` confines images to paths relative to the Markdown
+  directory, disallows URLs and symlinks that leave that directory, and
+  makes missing or invalid images an error. Without it, `images.missing:
+  error` enables strict errors while retaining HTTP(S) image support.
+- `column_widths` overrides individual columns in Excel character units.
+  Use uppercase column names; unspecified columns keep their defaults.
+- `print.paper` accepts `A3`, `A4`, `Letter`, or `Legal`. Orientation is
+  `portrait` or `landscape`. A fit value of `0` leaves its dimension
+  unlimited. When setting only one fit dimension, the other is unlimited.
+  `print.area` optionally sets a sheet-local rectangular range.
+
+
 ## Supported Markdown Features
 
 ### Headings (H1--H6)
