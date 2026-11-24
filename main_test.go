@@ -1,0 +1,204 @@
+package main
+
+import (
+	"archive/zip"
+	"bytes"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/xuri/excelize/v2"
+)
+
+func TestReverseDemo(t *testing.T) {
+	const src = "sample/output/demo.xlsx"
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "docs", "demo.md")
+	images := filepath.Join(dir, "demo images")
+	args := []string{"-s", src, "-d", dst, "--image-dir", images}
+	if err := runReverse(args); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	md := string(data)
+	for _, want := range []string{
+		"# md2xls Feature Demo\n", "## Headings\n", "### Auto-numbered Headings\n",
+		"#### H4 Item Heading\n", "##### H5 SubItem Heading\n", "###### H6 Detail Heading\n",
+		"| Left Aligned | Center Aligned | Right Aligned |\n| :--- | :---: | ---: |",
+		"| Mixed | **bold** and `code` | Both stripped |", "| 2 | Short |",
+		"```\npackage main\n", "> This is a simple blockquote.\n> It spans multiple lines",
+		"  - [x] Implement H4-H6 headings", "[md2xls on GitHub](https://github.com/HituziANDO/md2xls)",
+		"Above the first rule.\n\n---\n", "`1.1.1.1.`. H5", "config option or the",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	// Compare the complete wrapped paragraph, including its unformatted final rows.
+	original, err := os.ReadFile("sample/demo.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, longSection, ok := strings.Cut(string(original), "### Rich Text in Long Lines\n\n")
+	paragraph, _, _ := strings.Cut(longSection, "\n")
+	if !ok || paragraph == "" || !strings.Contains(md, paragraph) {
+		t.Error("wrapped paragraph differs from source")
+	}
+
+	book, err := zip.OpenReader(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer book.Close()
+	embedded, err := book.Open("xl/media/image1.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer embedded.Close()
+	want, err := io.ReadAll(embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 3; i++ {
+		name := fmt.Sprintf("image_%03d.png", i)
+		if !strings.Contains(md, "![](../demo%20images/"+name+")") {
+			t.Errorf("missing image link for %s", name)
+		}
+		got, err := os.ReadFile(filepath.Join(images, name))
+		if err != nil || !bytes.Equal(got, want) {
+			t.Errorf("image %s differs from workbook: %v", name, err)
+		}
+	}
+	if err := runReverse(append(args, "--sheet", "Sheet1")); err == nil {
+		t.Error("expected missing sheet error")
+	}
+	if err := runReverse(append(args, "--image-dir", dst)); err == nil {
+		t.Error("expected image directory error")
+	}
+}
+
+func TestReverseWorkbook(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "MSS画面設計書v34_1表紙.xlsx")
+	dst := filepath.Join(dir, "MSS画面設計書v34_1表紙.md")
+	cfg := filepath.Join(dir, "config.yml")
+	if err := os.WriteFile(cfg, []byte("sheet_name: 履歴\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f := excelize.NewFile()
+	defer f.Close()
+	if _, err := f.NewSheet("履歴"); err != nil {
+		t.Fatal(err)
+	}
+	for cell, v := range map[string]string{"B2": "版", "E2": "概要", "B3": "1", "E3": "修正\n追記", "G4": "列|末尾"} {
+		if err := f.SetCellValue("履歴", cell, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.MergeCell("履歴", "B2", "D2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.SaveAs(src); err != nil {
+		t.Fatal(err)
+	}
+
+	args := []string{"-s", src, "-c", cfg}
+	grid := "| 版 | 概要 |  |\n| --- | --- | --- |\n| 1 | 修正<br>追記 |  |\n|  |  | 列\\|末尾 |\n"
+	for _, tc := range []struct {
+		flags []string
+		want  string
+	}{
+		{[]string{"--all-sheets"}, "# Sheet1\n\n# 履歴\n\n" + grid},
+		{nil, grid},
+		{[]string{"--sheet", "Sheet1"}, ""},
+	} {
+		if err := runReverse(append(args, tc.flags...)); err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != tc.want {
+			t.Errorf("flags %v: got %q, want %q", tc.flags, got, tc.want)
+		}
+	}
+}
+
+func TestReverseRejectsSplitOutputPath(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "MSS画面")
+	err := runReverse([]string{"-s", "sample/output/demo.xlsx", "-d", dst, "設計書v34_1表紙.md", "--image-dir", filepath.Join(dir, "images")})
+	if err == nil || !strings.Contains(err.Error(), "設計書v34_1表紙.md") {
+		t.Fatalf("expected error identifying the unexpected argument, got %v", err)
+	}
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Fatalf("unexpected output at %s: stat error %v", dst, err)
+	}
+}
+
+func TestReverseSplitSheets(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "設計書.xlsx")
+	f, err := excelize.OpenFile("sample/output/demo.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.NewSheet("空のシート"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.SaveAs(src); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "config.yml")
+	if err := os.WriteFile(cfg, []byte("reverse:\n  split_sheets: true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"-s", src, "-c", cfg, "--image-dir", filepath.Join(dir, "images")}
+	if err := runReverse(args); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "設計書")
+	body, err := os.ReadFile(filepath.Join(out, "001_Sample.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(body), "# md2xls Feature Demo\n") || strings.Contains(string(body), "空のシート") {
+		t.Error("unexpected content in first sheet")
+	}
+	imagePath := "../images/001/image_001.png"
+	if !strings.Contains(string(body), "]("+imagePath+")") {
+		t.Error("missing relative image link")
+	}
+	if _, err := os.Stat(filepath.Join(out, imagePath)); err != nil {
+		t.Fatal(err)
+	}
+	empty, err := os.ReadFile(filepath.Join(out, "002_空のシート.md"))
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("empty sheet: %q, %v", empty, err)
+	}
+
+	selected := filepath.Join(dir, "selected")
+	if err := runReverse(append(args, "--split-sheets", "--sheet", "空のシート", "-d", selected)); err != nil {
+		t.Fatal(err)
+	}
+	files, err := os.ReadDir(selected)
+	if err != nil || len(files) != 1 || files[0].Name() != "002_空のシート.md" {
+		t.Fatalf("selected files: %v, %v", files, err)
+	}
+
+	if err := runReverse(append(args, "--split-sheets=false")); err != nil {
+		t.Fatal(err)
+	}
+	combined, err := os.ReadFile(filepath.Join(dir, "設計書.md"))
+	if err != nil || !strings.Contains(string(combined), "# 空のシート\n") {
+		t.Fatalf("combined output missing sheet: %v", err)
+	}
+}

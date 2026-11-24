@@ -92,6 +92,26 @@ md2xls -c my-config.yml
 md2xls -v
 ```
 
+### ExcelからMarkdownに変換する
+
+ExcelブックをMarkdownに変換し、埋め込み画像を取り出せます。複数列の帳票は空行ごとに表に分け、図形に記載された文字と図形間の接続はMermaidのフローチャートに変換します。
+
+```sh
+md2xls reverse -s sample/output/demo.xlsx -d sample/output/demo.md --image-dir sample/output/images
+```
+
+既定設定では全シートをブック順に1ファイルへ出力します。複数シートの場合はシート名が見出しになります。`--sheet シート名` で1枚を選択でき、`--all-sheets` で設定ファイルの `sheet_name` にかかわらず全シートを選択できます。出力先の既定値は、入力ファイルの拡張子を `.md` に変えたパスです。画像は既定で作業ディレクトリの `./images` に保存し、Markdownからの相対パスで参照します。見出し番号を残すには `--no-strip-heading-number` を指定します。
+
+`--split-sheets` を指定すると、対象シートごとにMarkdownを保存します。この場合の `-d`（または `reverse.dst`）は出力ディレクトリです。省略時は入力パスから拡張子を除いたディレクトリを使います。ファイル名はブック内の順番に `001_シート名.md` となり、画像も画像保存先の下に同じ番号で分けて保存します。
+
+```sh
+md2xls reverse --split-sheets --all-sheets -s 設計書.xlsx -d output/設計書
+```
+
+設定ファイルでは `reverse.split_sheets: true` で分割を有効にできます。コマンドラインで `--split-sheets=false` を指定すると1ファイルにまとめます。
+
+逆変換にはExcelに保存されたセルの値と書式を使います。コードブロックの言語名とHTMLコメントはExcel出力時に失われます。ハイパーリンクはセルのテキスト全体に付きます。
+
 ## 設定
 
 md2xlsは `.m2x.yml` YAMLファイルで設定します。すべてのフィールドは省略可能です。ファイル自体が存在しない場合はデフォルト値が使用されます。

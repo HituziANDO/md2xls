@@ -35,6 +35,15 @@ type PrintOptions struct {
 	Area        string `yaml:"area"`
 }
 
+// ReverseConfig holds settings for Excel → Markdown reverse conversion.
+type ReverseConfig struct {
+	SplitSheets        bool   `yaml:"-"`
+	Src                string `yaml:"-"`
+	Dst                string `yaml:"-"`
+	ImageDir           string `yaml:"-"`
+	StripHeadingNumber bool   `yaml:"-"`
+}
+
 type Config struct {
 	Images                    ImageOptions       `yaml:"images"`
 	ColumnWidths              map[string]float64 `yaml:"column_widths"`
@@ -48,6 +57,7 @@ type Config struct {
 	HeadingFontSize           HeadingFontSize    `yaml:"-"`
 	SheetName                 string             `yaml:"sheet_name"`
 	TableMergeThreshold       int                `yaml:"table_merge_threshold"`
+	Reverse                   ReverseConfig      `yaml:"-"`
 }
 
 // rawConfig mirrors the YAML structure with nested font objects.
@@ -81,6 +91,13 @@ type rawConfig struct {
 		H5 *float64 `yaml:"h5"`
 		H6 *float64 `yaml:"h6"`
 	} `yaml:"heading_font_size"`
+	Reverse *struct {
+		SplitSheets        bool    `yaml:"split_sheets"`
+		Src                *string `yaml:"src"`
+		Dst                *string `yaml:"dst"`
+		ImageDir           *string `yaml:"image_dir"`
+		StripHeadingNumber *bool   `yaml:"strip_heading_number"`
+	} `yaml:"reverse"`
 }
 
 func DefaultConfig() Config {
@@ -106,6 +123,12 @@ func DefaultConfig() Config {
 			H4: 14,
 			H5: 12,
 			H6: 11,
+		},
+		Reverse: ReverseConfig{
+			Src:                "",
+			Dst:                "",
+			ImageDir:           "./images",
+			StripHeadingNumber: true,
 		},
 	}
 }
@@ -178,6 +201,21 @@ func Load(path string) (Config, error) {
 		}
 		if raw.HeadingFontSize.H6 != nil {
 			cfg.HeadingFontSize.H6 = *raw.HeadingFontSize.H6
+		}
+	}
+	if raw.Reverse != nil {
+		cfg.Reverse.SplitSheets = raw.Reverse.SplitSheets
+		if raw.Reverse.Src != nil {
+			cfg.Reverse.Src = *raw.Reverse.Src
+		}
+		if raw.Reverse.Dst != nil {
+			cfg.Reverse.Dst = *raw.Reverse.Dst
+		}
+		if raw.Reverse.ImageDir != nil {
+			cfg.Reverse.ImageDir = *raw.Reverse.ImageDir
+		}
+		if raw.Reverse.StripHeadingNumber != nil {
+			cfg.Reverse.StripHeadingNumber = *raw.Reverse.StripHeadingNumber
 		}
 	}
 

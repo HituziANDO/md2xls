@@ -92,6 +92,26 @@ Check the installed version:
 md2xls -v
 ```
 
+### Excel to Markdown
+
+Convert an Excel workbook to Markdown and extract embedded images. Multi-column forms are rendered as tables separated by blank rows. Labeled shapes and their connections are rendered as Mermaid flowcharts.
+
+```sh
+md2xls reverse -s sample/output/demo.xlsx -d sample/output/demo.md --image-dir sample/output/images
+```
+
+With the default settings, reverse writes all sheets to one file in workbook order, adding sheet headings for multi-sheet output. Use `--sheet NAME` to select one sheet or `--all-sheets` to override a configured `sheet_name`. Output defaults to the input path with a `.md` extension. Images default to `./images` in the working directory and are linked relative to the Markdown file. Use `--no-strip-heading-number` to keep heading numbers.
+
+Use `--split-sheets` to write one Markdown file per selected sheet. In this mode `-d` (or `reverse.dst`) is the output directory. Its default is the input path without the extension. Files are named `001_SheetName.md`, using the sheet’s position in the workbook. Images are grouped by the same number under the image directory.
+
+```sh
+md2xls reverse --split-sheets --all-sheets -s design.xlsx -d output/design
+```
+
+Set `reverse.split_sheets: true` in YAML to enable this by default. Use `--split-sheets=false` to override it.
+
+The conversion uses the cell styles and values stored in Excel. Code block language tags and HTML comments are lost during Excel export. Each cell hyperlink applies to the full cell text.
+
 ## Configuration
 
 md2xls is configured via a `.m2x.yml` YAML file. All fields are optional. If the file is missing entirely, default values are used.
