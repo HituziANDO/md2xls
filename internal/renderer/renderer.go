@@ -6,10 +6,10 @@ import (
 	"image"
 	_ "image/gif"
 	"image/jpeg"
-	_ "image/jpeg"
 	_ "image/png"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -44,6 +44,9 @@ func New(cfg config.Config) *Renderer {
 // Render writes all components to an Excel file at cfg.Dst.
 func (r *Renderer) Render(components []parser.Component) error {
 	cfg := r.cfg
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
 	srcDir := filepath.Dir(cfg.Src)
 	sheetName = cfg.SheetName
 
@@ -71,6 +74,13 @@ func (r *Renderer) Render(components []parser.Component) error {
 		return fmt.Errorf("set column width: %w", err)
 	}
 
+	if err := applyColumnWidths(f, sheetName, cfg.ColumnWidths); err != nil {
+		return err
+	}
+	if err := applyPrintOptions(f, sheetName, cfg.Print); err != nil {
+		return err
+	}
+
 	// Hide gridlines
 	showGridLines := false
 	if err := f.SetSheetView(sheetName, 0, &excelize.ViewOptions{
@@ -80,6 +90,11 @@ func (r *Renderer) Render(components []parser.Component) error {
 	}
 
 	var tmpDirs []string
+	defer func() {
+		for _, dir := range tmpDirs {
+			os.RemoveAll(dir)
+		}
+	}()
 	rowCur := 1
 	for _, comp := range components {
 		cellName, err := excelize.JoinCellName("A", rowCur)
@@ -104,7 +119,7 @@ func (r *Renderer) Render(components []parser.Component) error {
 			rowCur, err = renderTable(f, stylist, rowCur, c, cfg.TableMergeThreshold)
 		case parser.Image:
 			var tmpDir string
-			rowCur, tmpDir, err = renderImage(f, cellName, rowCur, c, srcDir)
+			rowCur, tmpDir, err = renderImage(f, cellName, rowCur, c, srcDir, cfg.Images)
 			if tmpDir != "" {
 				tmpDirs = append(tmpDirs, tmpDir)
 			}
@@ -141,11 +156,6 @@ func (r *Renderer) Render(components []parser.Component) error {
 	// Set workbook window size (excelize has no public API for this)
 	if err := setWorkbookWindowSize(cfg.Dst, 19200, 28800); err != nil { // 960x1440
 		return fmt.Errorf("set window size: %w", err)
-	}
-
-	// Clean up temporary directories used for downloaded images.
-	for _, d := range tmpDirs {
-		os.RemoveAll(d)
 	}
 
 	return nil
@@ -312,72 +322,103 @@ func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Tabl
 	return row, nil
 }
 
-func renderImage(f *excelize.File, cellName string, row int, img parser.Image, srcDir string) (int, string, error) {
-	imgPath := filepath.Join(srcDir, img.Path)
+func renderImage(f *excelize.File, cellName string, row int, img parser.Image, srcDir string, opts config.ImageOptions) (int, string, error) {
 	var tmpDir string
-	if httpRegex.MatchString(img.Path) {
-		p, td, err := fetchImage(img.Path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to fetch image %s: %v\n", img.Path, err)
-			return row + 1, "", nil
+	fail := func(err error) (int, string, error) {
+		if opts.LocalOnly || opts.Missing == "error" {
+			return row, tmpDir, fmt.Errorf("image %q: %w", img.Path, err)
 		}
-		imgPath = p
-		tmpDir = td
-	}
-
-	oriImg, err := openImage(imgPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to open image %s: %v\n", imgPath, err)
+		fmt.Fprintf(os.Stderr, "warning: failed to load image %s: %v\n", img.Path, err)
 		return row + 1, tmpDir, nil
 	}
 
-	rect := oriImg.Bounds()
-	oriW := float64(rect.Dx())
-	oriH := float64(rect.Dy())
+	var data []byte
+	var err error
+	if opts.LocalOnly {
+		data, err = localImage(img.Path, srcDir)
+	} else {
+		imgPath := filepath.Join(srcDir, img.Path)
+		if httpRegex.MatchString(img.Path) {
+			imgPath, tmpDir, err = fetchImage(img.Path)
+		}
+		if err == nil {
+			data, err = os.ReadFile(imgPath)
+		}
+	}
+	if err != nil {
+		return fail(err)
+	}
 
+	oriImg, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return fail(err)
+	}
+	rect := oriImg.Bounds()
+	oriW, oriH := float64(rect.Dx()), float64(rect.Dy())
 	scale := 1.0
 	if oriH > 409 {
 		scale = 409 / oriH
 	}
-	w := oriW * scale
-	h := oriH * scale
-
+	w, h := oriW*scale, oriH*scale
 	if err := f.SetRowHeight(sheetName, row, h); err != nil {
 		return row, tmpDir, fmt.Errorf("set row height: %w", err)
 	}
 
-	// Resize for quality (1.8x with Lanczos3)
-	m := resize.Resize(uint(w*1.8), uint(h*1.8), oriImg, resize.Lanczos3)
-	paddingHeight := h / 2
-	if rect.In(m.Bounds()) {
-		// Resized is larger than original; use original
-		m = oriImg
-		paddingHeight = h / 6
+	options := &excelize.GraphicOptions{LockAspectRatio: true}
+	ext, paddingHeight := ".png", h/6
+	if format == "png" {
+		// Scale the on-sheet drawing, not the embedded bytes.
+		options.ScaleX, options.ScaleY = scale, scale
+	} else {
+		// Keep the legacy display sizing and JPEG conversion for other formats.
+		resized := resize.Resize(uint(w*1.8), uint(h*1.8), oriImg, resize.Lanczos3)
+		paddingHeight = h / 2
+		if rect.In(resized.Bounds()) {
+			resized = oriImg
+			paddingHeight = h / 6
+		}
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, resized, nil); err != nil {
+			return row, tmpDir, fmt.Errorf("encode image: %w", err)
+		}
+		ext, data = ".jpeg", buf.Bytes()
 	}
 
-	// Padding row
 	if err := f.SetRowHeight(sheetName, row+1, paddingHeight); err != nil {
 		return row, tmpDir, fmt.Errorf("set padding height: %w", err)
 	}
-
-	buf := new(bytes.Buffer)
-	if err := jpeg.Encode(buf, m, nil); err != nil {
-		return row, tmpDir, fmt.Errorf("encode image: %w", err)
-	}
-
-	ext := strings.ToLower(path.Ext(img.Path))
-	if ext == "" {
-		ext = ".jpeg"
-	}
 	if err := f.AddPictureFromBytes(sheetName, cellName, &excelize.Picture{
-		Extension: ext,
-		File:      buf.Bytes(),
-		Format:    &excelize.GraphicOptions{LockAspectRatio: true},
+		Extension: ext, File: data, Format: options,
 	}); err != nil {
 		return row, tmpDir, fmt.Errorf("add picture: %w", err)
 	}
-
 	return row + 2, tmpDir, nil
+}
+
+func localImage(name, dir string) ([]byte, error) {
+	ref, err := url.Parse(name)
+	if err != nil || ref.Scheme != "" || ref.Host != "" || ref.Path == "" ||
+		ref.Fragment != "" || ref.RawQuery != "" || strings.Contains(name, `\`) || !filepath.IsLocal(ref.Path) {
+		return nil, fmt.Errorf("expected a relative image path in the Markdown directory")
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	entry, err := root.Stat(ref.Path)
+	if err != nil {
+		return nil, err
+	}
+	if !entry.Mode().IsRegular() {
+		return nil, fmt.Errorf("image must be a regular file")
+	}
+	file, err := root.Open(ref.Path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(file)
 }
 
 func renderCode(f *excelize.File, stylist *Stylist, row int, code *parser.Code) (int, error) {
@@ -566,29 +607,15 @@ func fetchImage(url string) (imgPath string, tmpDir string, err error) {
 	tmpPath := filepath.Join(tmpDir, path.Base(url))
 	out, err := os.Create(tmpPath)
 	if err != nil {
-		return "", "", err
+		return "", tmpDir, err
 	}
 	defer out.Close()
 
 	if _, err := io.Copy(out, resp.Body); err != nil {
-		return "", "", err
+		return "", tmpDir, err
 	}
 
 	return tmpPath, tmpDir, nil
-}
-
-func openImage(p string) (image.Image, error) {
-	file, err := os.Open(p)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	img, _, err := image.Decode(file)
-	if err != nil {
-		return nil, err
-	}
-	return img, nil
 }
 
 // setWorkbookWindowSize rewrites the bookViews/workbookView element in

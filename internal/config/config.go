@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -21,23 +22,42 @@ type HeadingFontSize struct {
 	H6 float64 `yaml:"h6"`
 }
 
+type ImageOptions struct {
+	LocalOnly bool   `yaml:"local_only"`
+	Missing   string `yaml:"missing"`
+}
+
+type PrintOptions struct {
+	Paper       string `yaml:"paper"`
+	Orientation string `yaml:"orientation"`
+	FitToWidth  *int   `yaml:"fit_to_width"`
+	FitToHeight *int   `yaml:"fit_to_height"`
+	Area        string `yaml:"area"`
+}
+
 type Config struct {
-	Src                       string          `yaml:"src"`
-	Dst                       string          `yaml:"dst"`
-	Text                      FontStyle       `yaml:"-"`
-	Code                      FontStyle       `yaml:"-"`
-	MaxNumOfCharactersPerLine int             `yaml:"max_num_of_characters_per_line"`
-	HeadingNumber             bool            `yaml:"heading_number"`
-	HeadingFontSize           HeadingFontSize `yaml:"-"`
-	SheetName                 string          `yaml:"sheet_name"`
-	TableMergeThreshold       int             `yaml:"table_merge_threshold"`
+	Images                    ImageOptions       `yaml:"images"`
+	ColumnWidths              map[string]float64 `yaml:"column_widths"`
+	Print                     PrintOptions       `yaml:"print"`
+	Src                       string             `yaml:"src"`
+	Dst                       string             `yaml:"dst"`
+	Text                      FontStyle          `yaml:"-"`
+	Code                      FontStyle          `yaml:"-"`
+	MaxNumOfCharactersPerLine int                `yaml:"max_num_of_characters_per_line"`
+	HeadingNumber             bool               `yaml:"heading_number"`
+	HeadingFontSize           HeadingFontSize    `yaml:"-"`
+	SheetName                 string             `yaml:"sheet_name"`
+	TableMergeThreshold       int                `yaml:"table_merge_threshold"`
 }
 
 // rawConfig mirrors the YAML structure with nested font objects.
 type rawConfig struct {
-	Src  *string `yaml:"src"`
-	Dst  *string `yaml:"dst"`
-	Text *struct {
+	Images       ImageOptions       `yaml:"images"`
+	ColumnWidths map[string]float64 `yaml:"column_widths"`
+	Print        PrintOptions       `yaml:"print"`
+	Src          *string            `yaml:"src"`
+	Dst          *string            `yaml:"dst"`
+	Text         *struct {
 		Font *struct {
 			Family *string  `yaml:"family"`
 			Size   *float64 `yaml:"size"`
@@ -49,7 +69,7 @@ type rawConfig struct {
 			Size   *float64 `yaml:"size"`
 		} `yaml:"font"`
 	} `yaml:"code"`
-	MaxNumOfCharactersPerLine *int     `yaml:"max_num_of_characters_per_line"`
+	MaxNumOfCharactersPerLine *int    `yaml:"max_num_of_characters_per_line"`
 	HeadingNumber             *bool   `yaml:"heading_number"`
 	SheetName                 *string `yaml:"sheet_name"`
 	TableMergeThreshold       *int    `yaml:"table_merge_threshold"`
@@ -161,5 +181,33 @@ func Load(path string) (Config, error) {
 		}
 	}
 
-	return cfg, nil
+	cfg.Images, cfg.ColumnWidths, cfg.Print = raw.Images, raw.ColumnWidths, raw.Print
+	return cfg, cfg.Validate()
+}
+
+func (cfg Config) Validate() error {
+	switch cfg.Images.Missing {
+	case "", "warn", "error":
+	default:
+		return fmt.Errorf("images.missing must be warn or error")
+	}
+	if cfg.Images.LocalOnly && cfg.Images.Missing == "warn" {
+		return fmt.Errorf("images.local_only requires images.missing to be error or omitted")
+	}
+	switch cfg.Print.Paper {
+	case "", "A3", "A4", "Letter", "Legal":
+	default:
+		return fmt.Errorf("print.paper must be A3, A4, Letter, or Legal")
+	}
+	switch cfg.Print.Orientation {
+	case "", "portrait", "landscape":
+	default:
+		return fmt.Errorf("print.orientation must be portrait or landscape")
+	}
+	for _, pages := range []*int{cfg.Print.FitToWidth, cfg.Print.FitToHeight} {
+		if pages != nil && (*pages < 0 || *pages > 32767) {
+			return fmt.Errorf("print fit values must be between 0 and 32767")
+		}
+	}
+	return nil
 }
