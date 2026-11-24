@@ -65,12 +65,12 @@ This reads the config defaults (input: `README.md`, output: `README.xlsx`).
 | Flag | Shorthand | Default | Description |
 |------|-----------|---------|-------------|
 | `--src` | `-s` | (from config) | Input Markdown file path |
-| `--dst` | `-d` | (from config) | Output Excel file path |
+| `--dst` | `-d` | (from config) | Output Excel file path or directory |
 | `--config` | `-c` | `.m2x.yml` | Path to configuration file |
 | `--version` | `-v` | | Show version and exit |
 | `--no-heading-number` | | | Disable heading auto-numbering |
 
-CLI flags override the corresponding values in the configuration file.
+CLI flags override the corresponding values in the configuration file. If `-d` names a directory, the workbook uses the input filename with an `.xlsx` extension.
 
 ### Examples
 
@@ -147,7 +147,7 @@ heading_font_size:
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `src` | string | `README.md` | Input Markdown file path |
-| `dst` | string | `README.xlsx` | Output Excel file path |
+| `dst` | string | `README.xlsx` | Output Excel file path or directory |
 | `text.font.family` | string | `Meiryo UI` | Font family for headings, body text, and tables |
 | `text.font.size` | float | `11.0` | Font size (pt) for body text and tables |
 | `code.font.family` | string | `Arial` | Font family for code blocks and inline code |
@@ -274,7 +274,7 @@ Both HTML `<img>` tags and Markdown image syntax are supported:
 
 - **Local images**: resolved relative to the Markdown file's directory
 - **Remote images** (HTTP/HTTPS): downloaded automatically to a temporary directory (cleaned up after rendering)
-- **Supported formats**: PNG, JPEG, GIF (SVG is not supported)
+- **Supported formats**: PNG, JPEG, GIF, and SVG. SVG images are rendered as PNG with `rsvg-convert`, which must be on PATH for SVG input.
 - Images are scaled to fit within the sheet and rendered with Lanczos3 resampling for quality
 
 ### Lists
@@ -366,7 +366,6 @@ Plain text lines that exceed `max_num_of_characters_per_line` (default: 120) are
 
 The following Markdown features are not currently supported:
 
-- SVG images
 - Nested tables
 - Setext-style headings (`Heading\n=======`; use ATX `#` syntax)
 - Reference links (`[text][id]`) and footnotes (`[^1]`)

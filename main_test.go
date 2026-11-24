@@ -202,3 +202,18 @@ func TestReverseSplitSheets(t *testing.T) {
 		t.Fatalf("combined output missing sheet: %v", err)
 	}
 }
+
+func TestExcelOutputPath(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join("input", "004_故障新規登録画面.v2.md")
+	for _, tc := range []struct{ dst, want string }{
+		{dir, filepath.Join(dir, "004_故障新規登録画面.v2.xlsx")},
+		{filepath.Join(dir, "new") + string(filepath.Separator), filepath.Join(dir, "new", "004_故障新規登録画面.v2.xlsx")},
+		{filepath.Join(dir, "custom.xlsx"), filepath.Join(dir, "custom.xlsx")},
+	} {
+		got, err := excelOutputPath(src, tc.dst)
+		if err != nil || got != tc.want {
+			t.Errorf("destination %q: got %q, %v; want %q", tc.dst, got, err, tc.want)
+		}
+	}
+}

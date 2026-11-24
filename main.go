@@ -45,8 +45,8 @@ func run() error {
 	flag.StringVar(&cfgPath, "c", ".m2x.yml", "path to configuration file (shorthand)")
 	flag.StringVar(&src, "src", "", "input Markdown file (overrides config)")
 	flag.StringVar(&src, "s", "", "input Markdown file (shorthand)")
-	flag.StringVar(&dst, "dst", "", "output Excel file (overrides config)")
-	flag.StringVar(&dst, "d", "", "output Excel file (shorthand)")
+	flag.StringVar(&dst, "dst", "", "output Excel file or directory (overrides config)")
+	flag.StringVar(&dst, "d", "", "output Excel file or directory (shorthand)")
 	flag.BoolVar(&showVer, "version", false, "show version")
 	flag.BoolVar(&showVer, "v", false, "show version (shorthand)")
 	flag.BoolVar(&noHeadingNumber, "no-heading-number", false, "disable heading numbering (1., 1.1., 1.1.1.)")
@@ -73,6 +73,11 @@ func run() error {
 		cfg.HeadingNumber = false
 	}
 
+	cfg.Dst, err = excelOutputPath(cfg.Src, cfg.Dst)
+	if err != nil {
+		return err
+	}
+
 	text, err := os.ReadFile(cfg.Src)
 	if err != nil {
 		return fmt.Errorf("read source file %q: %w", cfg.Src, err)
@@ -87,6 +92,19 @@ func run() error {
 
 	fmt.Printf("Successfully converted %s → %s\n", cfg.Src, cfg.Dst)
 	return nil
+}
+
+// A trailing separator also identifies a directory that Render will create.
+func excelOutputPath(src, dst string) (string, error) {
+	info, err := os.Stat(dst)
+	if err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("check output path %q: %w", dst, err)
+	}
+	if (info != nil && info.IsDir()) || (len(dst) > 0 && os.IsPathSeparator(dst[len(dst)-1])) {
+		name := filepath.Base(src)
+		return filepath.Join(dst, strings.TrimSuffix(name, filepath.Ext(name))+".xlsx"), nil
+	}
+	return dst, nil
 }
 
 func runReverse(args []string) error {

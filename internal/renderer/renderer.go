@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -349,6 +350,17 @@ func renderImage(f *excelize.File, cellName string, row int, img parser.Image, s
 	}
 
 	oriImg, format, err := image.Decode(bytes.NewReader(data))
+	if err == image.ErrFormat && isSVG(data) {
+		// Reading SVG from stdin keeps the image self-contained, including embedded screenshots.
+		cmd := exec.Command("rsvg-convert", "--format=png")
+		cmd.Stdin = bytes.NewReader(data)
+		pngData, renderErr := cmd.Output()
+		if renderErr != nil {
+			return fail(fmt.Errorf("render SVG with rsvg-convert: %w", renderErr))
+		}
+		data = pngData
+		oriImg, format, err = image.Decode(bytes.NewReader(data))
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -397,6 +409,19 @@ func renderImage(f *excelize.File, cellName string, row int, img parser.Image, s
 		return row, tmpDir, fmt.Errorf("add picture: %w", err)
 	}
 	return row + 2, tmpDir, nil
+}
+
+func isSVG(data []byte) bool {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return false
+		}
+		if root, ok := token.(xml.StartElement); ok {
+			return root.Name.Local == "svg" && (root.Name.Space == "" || root.Name.Space == "http://www.w3.org/2000/svg")
+		}
+	}
 }
 
 func localImage(name, dir string) ([]byte, error) {
