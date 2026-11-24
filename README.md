@@ -94,7 +94,7 @@ md2xls -v
 
 ### Excel to Markdown
 
-Convert an Excel workbook to Markdown and extract embedded images. Multi-column forms are rendered as tables separated by blank rows. Labeled shapes and their connections are rendered as Mermaid flowcharts.
+Convert an Excel workbook to Markdown and extract embedded images. Multi-column forms are rendered as tables separated by blank rows. Labeled shapes and their connections are rendered as Mermaid flowcharts. Grouped screenshots and annotations are rendered together as SVG images at their worksheet rows.
 
 ```sh
 md2xls reverse -s sample/output/demo.xlsx -d sample/output/demo.md --image-dir sample/output/images

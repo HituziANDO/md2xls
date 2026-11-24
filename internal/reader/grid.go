@@ -1,6 +1,7 @@
 package reader
 
 import (
+	"cmp"
 	"slices"
 
 	"github.com/HituziANDO/md2xls/internal/parser"
@@ -35,10 +36,19 @@ func hasGridData(f *excelize.File, sheet string, rows [][]string) (bool, error) 
 
 // Blank rows separate tables. Keep each occupied column at the same position
 // throughout a table, including columns whose first value occurs late in it.
-func gridBlocks(rows [][]string) []parser.Component {
+func gridBlocks(rows [][]string, images []parser.Image) []parser.Component {
+	// A table remains intact if a floating picture is anchored inside its rows.
+	slices.SortStableFunc(images, func(a, b parser.Image) int { return cmp.Compare(a.Line, b.Line) })
+	rowNumber := 1
 	var blocks []parser.Component
-	for len(rows) > 0 {
+	for len(rows) > 0 || len(images) > 0 {
+		if len(images) > 0 && (len(rows) == 0 || images[0].Line < rowNumber) {
+			blocks = append(blocks, images[0])
+			images = images[1:]
+			continue
+		}
 		if len(rows[0]) == 0 {
+			rowNumber++
 			rows = rows[1:]
 			continue
 		}
@@ -66,12 +76,17 @@ func gridBlocks(rows [][]string) []parser.Component {
 			data = append(data, cells)
 		}
 		if len(columns) == 1 {
-			for _, row := range data {
+			for i, row := range data {
 				blocks = append(blocks, parser.PlainText{Text: row[0]})
+				for len(images) > 0 && images[0].Line <= rowNumber+i {
+					blocks = append(blocks, images[0])
+					images = images[1:]
+				}
 			}
 		} else if len(columns) > 1 {
 			blocks = append(blocks, parser.Table{Header: data[0], Data: data[1:]})
 		}
+		rowNumber += end
 		rows = rows[end:]
 	}
 	return blocks

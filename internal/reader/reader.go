@@ -2,10 +2,12 @@ package reader
 
 import (
 	"archive/zip"
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -93,25 +95,29 @@ func (r *Reader) ReadSheets(xlsxPath string) ([]Sheet, error) {
 			sheetReader.cfg.Reverse.ImageDir = filepath.Join(r.imageDir(), fmt.Sprintf("%03d", number))
 			imageNumber = 0
 		}
-		blocks, err := sheetReader.readSheet(f, sheet, &imageNumber)
-		if err != nil {
-			return nil, fmt.Errorf("sheet %q: %w", sheet, err)
-		}
+		var layouts []parser.Image
+		var diagrams []parser.Component
 		for _, drawing := range drawings[sheet] {
-			diagram, err := drawingDiagram(&archive.Reader, drawing)
+			images, diagram, err := sheetReader.readDrawing(&archive.Reader, drawing, &imageNumber)
 			if err != nil {
 				return nil, fmt.Errorf("sheet %q drawing: %w", sheet, err)
 			}
+			layouts = append(layouts, images...)
 			if diagram != nil {
-				blocks = append(blocks, diagram)
+				diagrams = append(diagrams, diagram)
 			}
 		}
+		blocks, err := sheetReader.readSheet(f, sheet, &imageNumber, layouts)
+		if err != nil {
+			return nil, fmt.Errorf("sheet %q: %w", sheet, err)
+		}
+		blocks = append(blocks, diagrams...)
 		result = append(result, Sheet{Number: number, Name: sheet, Components: blocks})
 	}
 	return result, nil
 }
 
-func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int) ([]parser.Component, error) {
+func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, layouts []parser.Image) ([]parser.Component, error) {
 	pictures, err := f.GetPictureCells(sheet)
 	if err != nil {
 		return nil, fmt.Errorf("locate pictures: %w", err)
@@ -139,7 +145,6 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int) ([]
 		return nil, err
 	}
 	if useGrid || outsideColumnA {
-		blocks := gridBlocks(rows)
 		for _, cell := range pictures {
 			if !pictureCells[cell] {
 				continue
@@ -149,9 +154,9 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int) ([]
 			if err != nil {
 				return nil, err
 			}
-			blocks = append(blocks, images...)
+			layouts = append(layouts, images...)
 		}
-		return blocks, nil
+		return gridBlocks(rows, layouts), nil
 	}
 	// Empty styled rows (for example a horizontal rule) can follow the final value.
 	maxRow, err := countRows(f, sheet)
@@ -159,7 +164,7 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int) ([]
 		return nil, fmt.Errorf("count rows: %w", err)
 	}
 	maxRow = max(maxRow, lastPictureRow)
-	if maxRow == 0 {
+	if maxRow == 0 && len(layouts) == 0 {
 		return nil, nil
 	}
 
@@ -189,8 +194,19 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int) ([]
 		}
 	}
 
+	slices.SortStableFunc(layouts, func(a, b parser.Image) int { return cmp.Compare(a.Line, b.Line) })
 	row := 1
-	for row <= maxRow {
+	for row <= maxRow || len(layouts) > 0 {
+		if len(layouts) > 0 && (row > maxRow || layouts[0].Line < row) {
+			flushParagraph()
+			if len(list.Items) > 0 {
+				components = append(components, list)
+				list = parser.List{}
+			}
+			components = append(components, layouts[0])
+			layouts = layouts[1:]
+			continue
+		}
 		cellRef, err := excelize.JoinCellName("A", row)
 		if err != nil {
 			return nil, fmt.Errorf("join cell name for row %d: %w", row, err)
@@ -250,7 +266,9 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int) ([]
 			if err != nil {
 				return nil, err
 			}
-			components = append(components, images...)
+			for _, img := range images {
+				components = append(components, img)
+			}
 			row++
 
 		case parser.TypeCode:
@@ -529,13 +547,13 @@ func (r *Reader) readBlockquote(f *excelize.File, sheet, cellRef, mergeRange str
 	}, advance
 }
 
-func (r *Reader) cellImages(f *excelize.File, sheet, cell string, number *int) ([]parser.Component, error) {
+func (r *Reader) cellImages(f *excelize.File, sheet, cell string, number *int) ([]parser.Image, error) {
 	pics, err := f.GetPictures(sheet, cell)
 	if err != nil {
 		return nil, fmt.Errorf("read images at %s: %w", cell, err)
 	}
 	_, row, _ := excelize.CellNameToCoordinates(cell)
-	var images []parser.Component
+	var images []parser.Image
 	for _, pic := range pics {
 		*number++
 		img, err := r.readImage(pic, *number, row)

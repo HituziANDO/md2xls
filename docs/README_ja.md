@@ -94,7 +94,7 @@ md2xls -v
 
 ### ExcelからMarkdownに変換する
 
-ExcelブックをMarkdownに変換し、埋め込み画像を取り出せます。複数列の帳票は空行ごとに表に分け、図形に記載された文字と図形間の接続はMermaidのフローチャートに変換します。
+ExcelブックをMarkdownに変換し、埋め込み画像を取り出せます。複数列の帳票は空行ごとに表に分け、図形に記載された文字と図形間の接続はMermaidのフローチャートに変換します。スクリーンショットと注記をグループ化した画面レイアウトは、画像と注記を重ねたSVGとして元の行位置に挿入します。
 
 ```sh
 md2xls reverse -s sample/output/demo.xlsx -d sample/output/demo.md --image-dir sample/output/images

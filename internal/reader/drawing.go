@@ -4,12 +4,12 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"path"
 	"strings"
 
 	"github.com/HituziANDO/md2xls/internal/parser"
+	"github.com/xuri/excelize/v2"
 )
 
 type relationship struct {
@@ -116,10 +116,9 @@ type shapeID struct {
 }
 
 type drawingShape struct {
-	Node       shapeID `xml:"nvSpPr>cNvPr"`
-	Paragraphs []struct {
-		Runs []string `xml:"r>t"`
-	} `xml:"txBody>p"`
+	Node       shapeID            `xml:"nvSpPr>cNvPr"`
+	Properties shapeProperties    `xml:"spPr"`
+	Paragraphs []drawingParagraph `xml:"txBody>p"`
 }
 
 type drawingConnector struct {
@@ -135,54 +134,71 @@ type drawingConnector struct {
 
 var mermaidLabel = strings.NewReplacer("#", "#35;", "&", "#38;", "\"", "#quot;", "<", "#60;", ">", "#62;", "\n", "<br/>")
 
-func drawingDiagram(book fs.FS, name string) (*parser.Code, error) {
-	f, err := book.Open(name)
-	if err != nil {
-		return nil, err
+// Anchor rows are zero-based in DrawingML and one-based in the sheet reader.
+func (r *Reader) readDrawing(book fs.FS, name string, imageNumber *int) ([]parser.Image, *parser.Code, error) {
+	var document struct {
+		Anchors []struct {
+			Row   int           `xml:"from>row"`
+			Items []drawingItem `xml:",any"`
+		} `xml:",any"`
 	}
-	defer f.Close()
-	dec := xml.NewDecoder(f)
+	if err := decodePart(book, name, &document); err != nil {
+		return nil, nil, err
+	}
+	rels, err := partRelationships(book, name)
+	if err != nil {
+		return nil, nil, err
+	}
+	media := make(map[string]string)
+	for _, rel := range rels {
+		if strings.HasSuffix(rel.Type, "/image") {
+			media[rel.ID] = rel.Target
+		}
+	}
+
+	var images []parser.Image
 	lines := []string{"flowchart TD"}
 	nodes := map[uint]bool{}
 	var edges []drawingConnector
-	for {
-		token, err := dec.Token()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		start, ok := token.(xml.StartElement)
-		if !ok {
-			continue
-		}
-		switch start.Name.Local {
-		case "sp":
-			var s drawingShape
-			if err := dec.DecodeElement(&s, &start); err != nil {
-				return nil, err
+	for _, anchor := range document.Anchors {
+		items := anchor.Items
+		for len(items) > 0 {
+			item := items[0]
+			items = items[1:]
+			switch {
+			case item.Group != nil:
+				if !item.Group.hasPicture() {
+					items = append(append([]drawingItem{}, item.Group.Items...), items...)
+					continue
+				}
+				svg, err := item.Group.svg(book, media)
+				if err != nil {
+					return nil, nil, err
+				}
+				*imageNumber++
+				img, err := r.readImage(excelize.Picture{Extension: ".svg", File: svg}, *imageNumber, anchor.Row+1)
+				if err != nil {
+					return nil, nil, err
+				}
+				images = append(images, img)
+			case item.Shape != nil:
+				var paragraphs []string
+				for _, p := range item.Shape.Paragraphs {
+					paragraphs = append(paragraphs, p.text())
+				}
+				label := strings.Join(paragraphs, "\n")
+				if label != "" {
+					id := item.Shape.Node.ID
+					nodes[id] = true
+					lines = append(lines, fmt.Sprintf("    n%d[\"%s\"]", id, mermaidLabel.Replace(label)))
+				}
+			case item.Edge != nil:
+				edges = append(edges, *item.Edge)
 			}
-			var paragraphs []string
-			for _, p := range s.Paragraphs {
-				paragraphs = append(paragraphs, strings.Join(p.Runs, ""))
-			}
-			label := strings.Join(paragraphs, "\n")
-			if label == "" {
-				continue
-			}
-			lines = append(lines, fmt.Sprintf("    n%d[\"%s\"]", s.Node.ID, mermaidLabel.Replace(label)))
-			nodes[s.Node.ID] = true
-		case "cxnSp":
-			var edge drawingConnector
-			if err := dec.DecodeElement(&edge, &start); err != nil {
-				return nil, err
-			}
-			edges = append(edges, edge)
 		}
 	}
 	if len(nodes) == 0 {
-		return nil, nil
+		return images, nil, nil
 	}
 	for _, edge := range edges {
 		if edge.Start == nil || edge.End == nil || !nodes[edge.Start.ID] || !nodes[edge.End.ID] {
@@ -203,5 +219,5 @@ func drawingDiagram(book fs.FS, name string) (*parser.Code, error) {
 		}
 		lines = append(lines, fmt.Sprintf("    n%d %s n%d", from, arrow, to))
 	}
-	return &parser.Code{Lang: "mermaid", Codes: lines}, nil
+	return images, &parser.Code{Lang: "mermaid", Codes: lines}, nil
 }
