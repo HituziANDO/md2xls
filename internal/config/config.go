@@ -35,11 +35,20 @@ type PrintOptions struct {
 	Area        string `yaml:"area"`
 }
 
+// ReverseConfig holds settings for Excel → Markdown reverse conversion.
+type ReverseConfig struct {
+	SplitSheets        bool   `yaml:"-"`
+	Src                string `yaml:"-"`
+	Dst                string `yaml:"-"`
+	ImageDir           string `yaml:"-"`
+	StripHeadingNumber bool   `yaml:"-"`
+}
+
 type Config struct {
 	Images                    ImageOptions       `yaml:"images"`
 	ColumnWidths              map[string]float64 `yaml:"column_widths"`
 	Print                     PrintOptions       `yaml:"print"`
-	Src                       string             `yaml:"src"`
+	Sources                   []string           `yaml:"src"`
 	Dst                       string             `yaml:"dst"`
 	Text                      FontStyle          `yaml:"-"`
 	Code                      FontStyle          `yaml:"-"`
@@ -48,6 +57,34 @@ type Config struct {
 	HeadingFontSize           HeadingFontSize    `yaml:"-"`
 	SheetName                 string             `yaml:"sheet_name"`
 	TableMergeThreshold       int                `yaml:"table_merge_threshold"`
+	Reverse                   ReverseConfig      `yaml:"-"`
+}
+
+// A scalar src preserves the original single-file configuration.
+type sourcePaths []string
+
+func (paths *sourcePaths) UnmarshalYAML(node *yaml.Node) error {
+	var values []string
+	switch node.Kind {
+	case yaml.ScalarNode:
+		values = []string{node.Value}
+	case yaml.SequenceNode:
+		if err := node.Decode(&values); err != nil {
+			return fmt.Errorf("src: %w", err)
+		}
+	default:
+		return fmt.Errorf("src must be a path or a list of paths")
+	}
+	if len(values) == 0 {
+		return fmt.Errorf("src must contain at least one Markdown path")
+	}
+	for _, path := range values {
+		if path == "" {
+			return fmt.Errorf("src contains an empty Markdown path")
+		}
+	}
+	*paths = values
+	return nil
 }
 
 // rawConfig mirrors the YAML structure with nested font objects.
@@ -55,7 +92,7 @@ type rawConfig struct {
 	Images       ImageOptions       `yaml:"images"`
 	ColumnWidths map[string]float64 `yaml:"column_widths"`
 	Print        PrintOptions       `yaml:"print"`
-	Src          *string            `yaml:"src"`
+	Src          *sourcePaths       `yaml:"src"`
 	Dst          *string            `yaml:"dst"`
 	Text         *struct {
 		Font *struct {
@@ -81,12 +118,19 @@ type rawConfig struct {
 		H5 *float64 `yaml:"h5"`
 		H6 *float64 `yaml:"h6"`
 	} `yaml:"heading_font_size"`
+	Reverse *struct {
+		SplitSheets        bool    `yaml:"split_sheets"`
+		Src                *string `yaml:"src"`
+		Dst                *string `yaml:"dst"`
+		ImageDir           *string `yaml:"image_dir"`
+		StripHeadingNumber *bool   `yaml:"strip_heading_number"`
+	} `yaml:"reverse"`
 }
 
 func DefaultConfig() Config {
 	return Config{
-		Src: "README.md",
-		Dst: "README.xlsx",
+		Sources: []string{"README.md"},
+		Dst:     "README.xlsx",
 		Text: FontStyle{
 			Family: "Meiryo UI",
 			Size:   11.0,
@@ -106,6 +150,12 @@ func DefaultConfig() Config {
 			H4: 14,
 			H5: 12,
 			H6: 11,
+		},
+		Reverse: ReverseConfig{
+			Src:                "",
+			Dst:                "",
+			ImageDir:           "./images",
+			StripHeadingNumber: true,
 		},
 	}
 }
@@ -127,7 +177,7 @@ func Load(path string) (Config, error) {
 	}
 
 	if raw.Src != nil {
-		cfg.Src = *raw.Src
+		cfg.Sources = *raw.Src
 	}
 	if raw.Dst != nil {
 		cfg.Dst = *raw.Dst
@@ -178,6 +228,21 @@ func Load(path string) (Config, error) {
 		}
 		if raw.HeadingFontSize.H6 != nil {
 			cfg.HeadingFontSize.H6 = *raw.HeadingFontSize.H6
+		}
+	}
+	if raw.Reverse != nil {
+		cfg.Reverse.SplitSheets = raw.Reverse.SplitSheets
+		if raw.Reverse.Src != nil {
+			cfg.Reverse.Src = *raw.Reverse.Src
+		}
+		if raw.Reverse.Dst != nil {
+			cfg.Reverse.Dst = *raw.Reverse.Dst
+		}
+		if raw.Reverse.ImageDir != nil {
+			cfg.Reverse.ImageDir = *raw.Reverse.ImageDir
+		}
+		if raw.Reverse.StripHeadingNumber != nil {
+			cfg.Reverse.StripHeadingNumber = *raw.Reverse.StripHeadingNumber
 		}
 	}
 

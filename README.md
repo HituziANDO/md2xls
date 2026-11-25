@@ -60,17 +60,37 @@ md2xls
 
 This reads the config defaults (input: `README.md`, output: `README.xlsx`).
 
+### Combine Markdown files into one workbook
+
+Put options before the input paths. Each file becomes one worksheet in argument order. A shell glob such as `output/*.md` uses the order supplied by the shell.
+
+```sh
+md2xls -d design.xlsx cover.md screens.md transitions.md
+```
+
+For the same result with just `md2xls`, list the paths in `.m2x.yml` in worksheet order. Paths are relative to the working directory. Relative image links resolve from each Markdown file’s directory.
+
+```yaml
+src:
+  - cover.md
+  - screens.md
+  - transitions.md
+dst: design.xlsx
+```
+
+Positional inputs or a single `-s` replace the entire configured input list. Combining both forms is an error. Single-file export uses `sheet_name`. With multiple files, sheet names come from filenames without extensions. Invalid characters become `_`, long names are shortened to Excel’s 31-character limit, and duplicates receive suffixes such as ` (2)`.
+
 ### CLI flags
 
 | Flag | Shorthand | Default | Description |
 |------|-----------|---------|-------------|
 | `--src` | `-s` | (from config) | Input Markdown file path |
-| `--dst` | `-d` | (from config) | Output Excel file path |
+| `--dst` | `-d` | (from config) | Output Excel file path or directory |
 | `--config` | `-c` | `.m2x.yml` | Path to configuration file |
 | `--version` | `-v` | | Show version and exit |
 | `--no-heading-number` | | | Disable heading auto-numbering |
 
-CLI flags override the corresponding values in the configuration file.
+CLI flags override the corresponding values in the configuration file. If `-d` names a directory, the workbook uses the first input filename with an `.xlsx` extension.
 
 ### Examples
 
@@ -91,6 +111,26 @@ Check the installed version:
 ```sh
 md2xls -v
 ```
+
+### Excel to Markdown
+
+Convert an Excel workbook to Markdown and extract embedded images. Multi-column forms are rendered as tables separated by blank rows. Labeled shapes and their connections are rendered as Mermaid flowcharts. Grouped screenshots and annotations are rendered together as SVG images at their worksheet rows.
+
+```sh
+md2xls reverse -s sample/output/demo.xlsx -d sample/output/demo.md --image-dir sample/output/images
+```
+
+With the default settings, reverse writes all worksheets to one file in workbook order, adding sheet headings for multi-sheet output. Use `--sheet NAME` to select one sheet or `--all-sheets` to override a configured `sheet_name`. Output defaults to the input path with a `.md` extension. Chart sheets are skipped. Images default to `./images` in the working directory and are linked relative to the Markdown file. If an image filename already exists, identical content reuses it and different content receives a suffix such as `_2`. Use `--no-strip-heading-number` to keep heading numbers.
+
+Use `--split-sheets` to write one Markdown file per selected sheet. In this mode `-d` (or `reverse.dst`) is the output directory. Its default is the input path without the extension. Files are named `001_SheetName.md`, using the sheet’s position in the workbook. Images are grouped by the same number under the image directory. When rebuilding from multiple files, the filenames become sheet names, including the number prefix and any underscores substituted for invalid filename characters. For example, `001_Cover.md` becomes `001_Cover`.
+
+```sh
+md2xls reverse --split-sheets --all-sheets -s design.xlsx -d output/design
+```
+
+Set `reverse.split_sheets: true` in YAML to enable this by default. Use `--split-sheets=false` to override it.
+
+The conversion uses the cell styles and values stored in Excel. Code block language tags and HTML comments are lost during Excel export. Each external hyperlink applies to the full cell text. Links to locations in the same workbook are exported as display text.
 
 ## Configuration
 
@@ -126,15 +166,15 @@ heading_font_size:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `src` | string | `README.md` | Input Markdown file path |
-| `dst` | string | `README.xlsx` | Output Excel file path |
+| `src` | string or list of strings | `README.md` | Markdown paths in worksheet order |
+| `dst` | string | `README.xlsx` | Output Excel file path or directory |
 | `text.font.family` | string | `Meiryo UI` | Font family for headings, body text, and tables |
 | `text.font.size` | float | `11.0` | Font size (pt) for body text and tables |
 | `code.font.family` | string | `Arial` | Font family for code blocks and inline code |
 | `code.font.size` | float | `10.5` | Font size (pt) for code blocks and inline code |
 | `max_num_of_characters_per_line` | int | `120` | Maximum characters per line before wrapping |
 | `heading_number` | bool | `true` | Enable heading auto-numbering for H1--H4 (1., 1.1., 1.1.1., 1.1.1.1.) |
-| `sheet_name` | string | `Sheet1` | Excel sheet name |
+| `sheet_name` | string | `Sheet1` | Sheet name for single-file export |
 | `table_merge_threshold` | int | `80` | Byte threshold for merging wide table columns across two Excel columns |
 | `heading_font_size.h1` | float | `24` | Font size (pt) for H1 headings |
 | `heading_font_size.h2` | float | `20` | Font size (pt) for H2 headings |
@@ -254,7 +294,7 @@ Both HTML `<img>` tags and Markdown image syntax are supported:
 
 - **Local images**: resolved relative to the Markdown file's directory
 - **Remote images** (HTTP/HTTPS): downloaded automatically to a temporary directory (cleaned up after rendering)
-- **Supported formats**: PNG, JPEG, GIF (SVG is not supported)
+- **Supported formats**: PNG, JPEG, GIF, and SVG. SVG images are rendered as PNG with `rsvg-convert`, which must be on PATH for SVG input.
 - Images are scaled to fit within the sheet and rendered with Lanczos3 resampling for quality
 
 ### Lists
@@ -346,12 +386,11 @@ Plain text lines that exceed `max_num_of_characters_per_line` (default: 120) are
 
 The following Markdown features are not currently supported:
 
-- SVG images
 - Nested tables
 - Setext-style headings (`Heading\n=======`; use ATX `#` syntax)
 - Reference links (`[text][id]`) and footnotes (`[^1]`)
 - Backslash escapes (`\*not italic\*`)
-- Inline HTML tags (`<strong>`, `<br>`, `<a>`; only `<img>` is supported)
+- Inline HTML tags such as `<strong>` and `<a>`. The parser supports `<img>` and table-cell line breaks written as `<br>`.
 
 ## Development
 

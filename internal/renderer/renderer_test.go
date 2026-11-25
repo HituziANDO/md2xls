@@ -16,7 +16,7 @@ func TestRender_SimpleDocument(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.Dst = dst
-	cfg.Src = "test.md"
+	cfg.Sources[0] = "test.md"
 
 	components := []parser.Component{
 		parser.H1{Text: "Title", Chapter: 1, Line: 1},
@@ -45,7 +45,7 @@ func TestRender_AllComponentTypes(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.Dst = dst
-	cfg.Src = "test.md"
+	cfg.Sources[0] = "test.md"
 
 	table := &parser.Table{
 		Header:  []string{"Col1", "Col2"},
@@ -98,7 +98,7 @@ func TestRender_OutputDirectoryAutoCreated(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.Dst = dst
-	cfg.Src = "test.md"
+	cfg.Sources[0] = "test.md"
 
 	components := []parser.Component{
 		parser.PlainText{Text: "text", Chapter: 0, Section: 0, Term: 0, Line: 1},
@@ -121,7 +121,7 @@ func TestRender_EmptyComponents(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.Dst = dst
-	cfg.Src = "test.md"
+	cfg.Sources[0] = "test.md"
 
 	r := New(cfg)
 	err := r.Render([]parser.Component{})
@@ -140,7 +140,7 @@ func TestRender_PlainTextSplitByMaxChars(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.Dst = dst
-	cfg.Src = "test.md"
+	cfg.Sources[0] = "test.md"
 	cfg.MaxNumOfCharactersPerLine = 5
 
 	components := []parser.Component{
@@ -164,7 +164,7 @@ func TestRender_CustomSheetName(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	cfg.Dst = dst
-	cfg.Src = "test.md"
+	cfg.Sources[0] = "test.md"
 	cfg.SheetName = "CustomSheet"
 
 	components := []parser.Component{
