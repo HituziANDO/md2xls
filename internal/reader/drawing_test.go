@@ -10,6 +10,7 @@ import (
 	"testing/fstest"
 
 	"github.com/HituziANDO/md2xls/internal/config"
+	"github.com/xuri/excelize/v2"
 )
 
 func TestGroupedDrawing(t *testing.T) {
@@ -82,7 +83,12 @@ func TestGroupedScreenshotAtWorksheetRow(t *testing.T) {
 	if strings.Index(source, "<ellipse") < strings.Index(source, "<image") {
 		t.Error("annotation is behind the picture")
 	}
-	blocks := gridBlocks([][]string{{"title"}, {"layout"}, nil, nil, {"next section"}}, images)
+	f := excelize.NewFile()
+	defer f.Close()
+	blocks, err := gridBlocks(f, "Sheet1", [][]string{{"title"}, {"layout"}, nil, nil, {"next section"}}, images, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(blocks) != 4 || blocks[2] != images[0] {
 		t.Fatalf("layout inserted in wrong section: %v", blocks)
 	}

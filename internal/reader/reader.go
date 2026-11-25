@@ -144,6 +144,23 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 	if err != nil {
 		return nil, err
 	}
+	// Build merge cell lookup.
+	mergeCells, err := f.GetMergeCells(sheet, true)
+	if err != nil {
+		return nil, fmt.Errorf("get merge cells: %w", err)
+	}
+	mergeMap := make(map[string]string, len(mergeCells))
+	for _, mc := range mergeCells {
+		mergeMap[mc.GetStartAxis()] = mc.GetStartAxis() + ":" + mc.GetEndAxis()
+	}
+
+	// Style cache: style ID -> parsed style.
+	styleCache := make(map[int]*parsedStyle)
+
+	singleTables, err := singleColumnTables(f, sheet, rows, mergeMap, styleCache, !useGrid && !outsideColumnA)
+	if err != nil {
+		return nil, err
+	}
 	if useGrid || outsideColumnA {
 		for _, cell := range pictures {
 			if !pictureCells[cell] {
@@ -156,7 +173,7 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 			}
 			layouts = append(layouts, images...)
 		}
-		return gridBlocks(rows, layouts), nil
+		return gridBlocks(f, sheet, rows, layouts, singleTables)
 	}
 	// Empty styled rows (for example a horizontal rule) can follow the final value.
 	maxRow, err := countRows(f, sheet)
@@ -167,19 +184,6 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 	if maxRow == 0 && len(layouts) == 0 {
 		return nil, nil
 	}
-
-	// Build merge cell lookup.
-	mergeCells, err := f.GetMergeCells(sheet)
-	if err != nil {
-		return nil, fmt.Errorf("get merge cells: %w", err)
-	}
-	mergeMap := make(map[string]string, len(mergeCells))
-	for _, mc := range mergeCells {
-		mergeMap[mc.GetStartAxis()] = mc.GetStartAxis() + ":" + mc.GetEndAxis()
-	}
-
-	// Style cache: style ID -> parsed style.
-	styleCache := make(map[int]*parsedStyle)
 
 	var components []parser.Component
 	var list parser.List
@@ -252,6 +256,9 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 		}
 
 		detected := Detect(info, r.cfg)
+		if singleTables[row] != nil {
+			detected = parser.TypeTable
+		}
 
 		if detected != parser.TypePlainText || value == "" || hyperlink != "" {
 			flushParagraph()
@@ -286,6 +293,22 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 			row += advance
 
 		case parser.TypeTable:
+			if table := singleTables[row]; table != nil {
+				components = append(components, table)
+				end := row + 1 + len(table.Data)
+				for ; row < end; row++ {
+					cell, _ := excelize.JoinCellName("A", row)
+					if pictureCells[cell] {
+						images, err := r.cellImages(f, sheet, cell, imageNumber)
+						if err != nil {
+							return nil, err
+						}
+						layouts = append(layouts, images...)
+					}
+				}
+				slices.SortStableFunc(layouts, func(a, b parser.Image) int { return cmp.Compare(a.Line, b.Line) })
+				break
+			}
 			comp, advance, err := r.readTable(f, sheet, row, maxRow, styleCache, mergeMap)
 			if err != nil {
 				return nil, fmt.Errorf("read table at row %d: %w", row, err)
@@ -333,8 +356,8 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 			if len(list.Items) == 0 {
 				list.Line = row
 			}
-			runs := r.getRichTextSegments(f, sheet, cellRef)
-			list.Items = append(list.Items, parseListItem(value, runs, hasFormattedSegments(runs)))
+			runs := cellRichText(f, sheet, cellRef, value, ps.Font, r.cfg.Code.Family)
+			list.Items = append(list.Items, parseListItem(value, runs))
 			row++
 
 		case parser.TypePlainText:
@@ -345,8 +368,8 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 				if hyperlink != "" {
 					paragraph.Links = []parser.LinkInfo{{Text: value, URL: hyperlink}}
 				}
-				runs := r.getRichTextSegments(f, sheet, cellRef)
-				if !hasFormattedSegments(runs) {
+				runs := cellRichText(f, sheet, cellRef, value, ps.Font, r.cfg.Code.Family)
+				if len(runs) == 0 {
 					runs = []parser.RichTextSegment{{Text: value}}
 				}
 				if needsJoiningSpace(paragraphText.String(), value) {
@@ -688,37 +711,21 @@ func (r *Reader) readTableRow(f *excelize.File, sheet string, row int, colNums [
 		colName, _ := excelize.ColumnNumberToName(col)
 		cellRef, _ := excelize.JoinCellName(colName, row)
 
-		// Try rich text first (fallback strategy for Table).
-		rt := r.getRichTextSegments(f, sheet, cellRef)
-		if hasFormattedSegments(rt) {
-			richTexts[i] = rt
-			// Build plain text from segments as well.
-			var sb strings.Builder
-			for _, seg := range rt {
-				sb.WriteString(seg.Text)
-			}
-			values[i] = sb.String()
-		} else {
-			val, _ := f.GetCellValue(sheet, cellRef)
-			values[i] = val
-		}
-
-		// Get alignment from cell style.
+		value, _ := f.GetCellValue(sheet, cellRef)
+		values[i] = value
+		alignments[i] = "center"
+		var font *excelize.Font
 		styleID, err := f.GetCellStyle(sheet, cellRef)
 		if err == nil {
 			style, err := f.GetStyle(styleID)
-			if err == nil && style != nil && style.Alignment != nil {
-				align := style.Alignment.Horizontal
-				if align == "" {
-					align = "center"
+			if err == nil && style != nil {
+				font = style.Font
+				if style.Alignment != nil && style.Alignment.Horizontal != "" {
+					alignments[i] = style.Alignment.Horizontal
 				}
-				alignments[i] = align
-			} else {
-				alignments[i] = "center"
 			}
-		} else {
-			alignments[i] = "center"
 		}
+		richTexts[i] = cellRichText(f, sheet, cellRef, value, font, r.cfg.Code.Family)
 	}
 
 	return values, richTexts, alignments
@@ -741,7 +748,7 @@ func (r *Reader) isTableDataRow(f *excelize.File, sheet string, row int, styleCa
 }
 
 // parseListItem parses a list item from its text content.
-func parseListItem(text string, richText []parser.RichTextSegment, hasRich bool) parser.ListItem {
+func parseListItem(text string, richText []parser.RichTextSegment) parser.ListItem {
 	item := parser.ListItem{}
 
 	// Count leading groups of 4 spaces for indent level.
@@ -777,7 +784,7 @@ func parseListItem(text string, richText []parser.RichTextSegment, hasRich bool)
 	item.Text = remaining
 
 	// Adjust rich text segments to strip the prefix.
-	if hasRich {
+	if len(richText) > 0 {
 		item.RichText = stripPrefixFromRichText(richText, utf8.RuneCountInString(text)-utf8.RuneCountInString(remaining))
 	}
 
@@ -818,29 +825,32 @@ func stripPrefixFromRichText(segments []parser.RichTextSegment, n int) []parser.
 	return result
 }
 
-// getRichTextSegments retrieves rich text from a cell and converts to parser.RichTextSegment.
-func (r *Reader) getRichTextSegments(f *excelize.File, sheet, cellRef string) []parser.RichTextSegment {
-	runs, err := f.GetCellRichText(sheet, cellRef)
-	if err != nil || len(runs) == 0 {
+// cellRichText uses the cell's bold style for text without an explicit run font.
+// For numbers and dates the formatted cell value is the text shown in Excel.
+func cellRichText(f *excelize.File, sheet, cellRef, value string, font *excelize.Font, codeFamily string) []parser.RichTextSegment {
+	bold := font != nil && font.Bold
+	runs, _ := f.GetCellRichText(sheet, cellRef)
+	if len(runs) == 0 || (len(runs) == 1 && runs[0].Font == nil) {
+		if bold && value != "" {
+			return []parser.RichTextSegment{{Text: value, Bold: true}}
+		}
 		return nil
 	}
 
 	var segments []parser.RichTextSegment
 	for _, run := range runs {
-		seg := parser.RichTextSegment{
-			Text: run.Text,
-		}
+		seg := parser.RichTextSegment{Text: run.Text, Bold: bold}
 		if run.Font != nil {
 			seg.Bold = run.Font.Bold
 			seg.Italic = run.Font.Italic
 			seg.Strike = run.Font.Strike
-			if strings.EqualFold(run.Font.Family, r.cfg.Code.Family) {
-				seg.Code = true
-			}
+			seg.Code = codeFamily != "" && strings.EqualFold(run.Font.Family, codeFamily)
 		}
 		segments = append(segments, seg)
 	}
-
+	if !hasFormattedSegments(segments) {
+		return nil
+	}
 	return segments
 }
 

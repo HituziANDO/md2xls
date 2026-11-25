@@ -293,3 +293,128 @@ func TestWorksheetName(t *testing.T) {
 		}
 	}
 }
+
+func TestReverseCellBold(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "styles.xlsx")
+	f := excelize.NewFile()
+	defer f.Close()
+	if _, err := f.NewSheet("Grid"); err != nil {
+		t.Fatal(err)
+	}
+	bold, err := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true, Size: 11}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	setCell := func(sheet, cell string, value any, style int) {
+		t.Helper()
+		if err := f.SetCellValue(sheet, cell, value); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.SetCellStyle(sheet, cell, cell, style); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setCell("Sheet1", "A1", "ログの対象", bold)
+	setCell("Sheet1", "A3", "• 対象", bold)
+	setCell("Grid", "A4", "ログの対象", bold)
+	setCell("Grid", "C6", "項目", bold)
+	setCell("Grid", "F6", "説明", 0)
+	setCell("Grid", "C7", "ログの対象", 0)
+	if err := f.SetCellRichText("Grid", "F7", []excelize.RichTextRun{
+		{Text: "一部"}, {Text: "強調", Font: &excelize.Font{Bold: true}}, {Text: "のみ"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	format := "0000"
+	numberStyle, err := f.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}, CustomNumFmt: &format})
+	if err != nil {
+		t.Fatal(err)
+	}
+	setCell("Grid", "C8", 42, numberStyle)
+	if err := f.SaveAs(src); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "result.md")
+	if err := runReverse([]string{"--all-sheets", "-s", src, "-d", dst}); err != nil {
+		t.Fatal(err)
+	}
+	md, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "# Sheet1\n\n**ログの対象**\n\n- **対象**\n\n# Grid\n\n**ログの対象**\n\n" +
+		"| **項目** | 説明 |\n| --- | --- |\n| ログの対象 | 一部**強調**のみ |\n| **0042** |  |\n"
+	if string(md) != want {
+		t.Fatalf("unexpected Markdown:\n%s", md)
+	}
+}
+
+func TestReverseSingleColumnTables(t *testing.T) {
+	dir := t.TempDir()
+	f := excelize.NewFile()
+	defer f.Close()
+	borderStyle := func(sides ...string) int {
+		t.Helper()
+		var edges []excelize.Border
+		for _, side := range sides {
+			edges = append(edges, excelize.Border{Type: side, Style: 1, Color: "000000"})
+		}
+		id, err := f.NewStyle(&excelize.Style{Border: edges})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	left := borderStyle("left", "top", "bottom")
+	right := borderStyle("right", "top", "bottom")
+	full := borderStyle("left", "right", "top", "bottom")
+	for _, sheet := range []string{"Sheet1", "Grid"} {
+		if sheet == "Grid" {
+			if _, err := f.NewSheet(sheet); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.SetCellValue(sheet, "D10", "別の列"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for i, value := range []string{"説明", "対象", "検索", "CSV", "次の段落", "項目", "値"} {
+			a, _ := excelize.JoinCellName("A", i+1)
+			b, _ := excelize.JoinCellName("B", i+1)
+			if err := f.SetCellValue(sheet, a, value); err != nil {
+				t.Fatal(err)
+			}
+			switch i {
+			case 1, 2, 3:
+				if err := f.MergeCell(sheet, a, b); err != nil {
+					t.Fatal(err)
+				}
+				if err := f.SetCellStyle(sheet, a, a, left); err != nil {
+					t.Fatal(err)
+				}
+				if err := f.SetCellStyle(sheet, b, b, right); err != nil {
+					t.Fatal(err)
+				}
+			case 5, 6:
+				if err := f.SetCellStyle(sheet, a, a, full); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	src := filepath.Join(dir, "single.xlsx")
+	if err := f.SaveAs(src); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "out")
+	if err := runReverse([]string{"--all-sheets", "--split-sheets", "-s", src, "-d", dst}); err != nil {
+		t.Fatal(err)
+	}
+	want := "説明\n\n| 対象 |\n| --- |\n| 検索 |\n| CSV |\n\n次の段落\n\n| 項目 |\n| --- |\n| 値 |\n"
+	for name, suffix := range map[string]string{"001_Sheet1.md": "", "002_Grid.md": "\n別の列\n"} {
+		got, err := os.ReadFile(filepath.Join(dst, name))
+		if err != nil || string(got) != want+suffix {
+			t.Errorf("%s: got %q, %v; want %q", name, got, err, want+suffix)
+		}
+	}
+}
