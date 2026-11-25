@@ -60,6 +60,26 @@ md2xls
 
 This reads the config defaults (input: `README.md`, output: `README.xlsx`).
 
+### Combine Markdown files into one workbook
+
+Put options before the input paths. Each file becomes one worksheet in argument order. A shell glob such as `output/*.md` uses the order supplied by the shell.
+
+```sh
+md2xls -d design.xlsx cover.md screens.md transitions.md
+```
+
+For the same result with just `md2xls`, list the paths in `.m2x.yml` in worksheet order. Paths are relative to the working directory. Relative image links resolve from each Markdown file’s directory.
+
+```yaml
+src:
+  - cover.md
+  - screens.md
+  - transitions.md
+dst: design.xlsx
+```
+
+Positional inputs or a single `-s` replace the entire configured input list. Combining both forms is an error. Single-file export uses `sheet_name`. With multiple files, sheet names come from filenames without extensions. Invalid characters become `_`, long names are shortened to Excel’s 31-character limit, and duplicates receive suffixes such as ` (2)`.
+
 ### CLI flags
 
 | Flag | Shorthand | Default | Description |
@@ -70,7 +90,7 @@ This reads the config defaults (input: `README.md`, output: `README.xlsx`).
 | `--version` | `-v` | | Show version and exit |
 | `--no-heading-number` | | | Disable heading auto-numbering |
 
-CLI flags override the corresponding values in the configuration file. If `-d` names a directory, the workbook uses the input filename with an `.xlsx` extension.
+CLI flags override the corresponding values in the configuration file. If `-d` names a directory, the workbook uses the first input filename with an `.xlsx` extension.
 
 ### Examples
 
@@ -146,7 +166,7 @@ heading_font_size:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `src` | string | `README.md` | Input Markdown file path |
+| `src` | string or list of strings | `README.md` | Markdown paths in worksheet order |
 | `dst` | string | `README.xlsx` | Output Excel file path or directory |
 | `text.font.family` | string | `Meiryo UI` | Font family for headings, body text, and tables |
 | `text.font.size` | float | `11.0` | Font size (pt) for body text and tables |
@@ -154,7 +174,7 @@ heading_font_size:
 | `code.font.size` | float | `10.5` | Font size (pt) for code blocks and inline code |
 | `max_num_of_characters_per_line` | int | `120` | Maximum characters per line before wrapping |
 | `heading_number` | bool | `true` | Enable heading auto-numbering for H1--H4 (1., 1.1., 1.1.1., 1.1.1.1.) |
-| `sheet_name` | string | `Sheet1` | Excel sheet name |
+| `sheet_name` | string | `Sheet1` | Sheet name for single-file export |
 | `table_merge_threshold` | int | `80` | Byte threshold for merging wide table columns across two Excel columns |
 | `heading_font_size.h1` | float | `24` | Font size (pt) for H1 headings |
 | `heading_font_size.h2` | float | `20` | Font size (pt) for H2 headings |

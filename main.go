@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/HituziANDO/md2xls/internal/config"
 	"github.com/HituziANDO/md2xls/internal/parser"
 	"github.com/HituziANDO/md2xls/internal/reader"
 	"github.com/HituziANDO/md2xls/internal/renderer"
 	"github.com/HituziANDO/md2xls/internal/writer"
+	"github.com/xuri/excelize/v2"
 )
 
 // Set by goreleaser via ldflags.
@@ -33,6 +36,16 @@ func run() error {
 		return runReverse(os.Args[2:])
 	}
 
+	return runForward(os.Args[1:])
+}
+
+func runForward(args []string) error {
+	fs := flag.NewFlagSet("md2xls", flag.ExitOnError)
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "Usage: md2xls [options] [file.md ...]")
+		fs.PrintDefaults()
+	}
+
 	var (
 		cfgPath         string
 		src             string
@@ -41,16 +54,18 @@ func run() error {
 		noHeadingNumber bool
 	)
 
-	flag.StringVar(&cfgPath, "config", ".m2x.yml", "path to configuration file")
-	flag.StringVar(&cfgPath, "c", ".m2x.yml", "path to configuration file (shorthand)")
-	flag.StringVar(&src, "src", "", "input Markdown file (overrides config)")
-	flag.StringVar(&src, "s", "", "input Markdown file (shorthand)")
-	flag.StringVar(&dst, "dst", "", "output Excel file or directory (overrides config)")
-	flag.StringVar(&dst, "d", "", "output Excel file or directory (shorthand)")
-	flag.BoolVar(&showVer, "version", false, "show version")
-	flag.BoolVar(&showVer, "v", false, "show version (shorthand)")
-	flag.BoolVar(&noHeadingNumber, "no-heading-number", false, "disable heading numbering (1., 1.1., 1.1.1.)")
-	flag.Parse()
+	fs.StringVar(&cfgPath, "config", ".m2x.yml", "path to configuration file")
+	fs.StringVar(&cfgPath, "c", ".m2x.yml", "path to configuration file (shorthand)")
+	fs.StringVar(&src, "src", "", "input Markdown file (overrides config)")
+	fs.StringVar(&src, "s", "", "input Markdown file (shorthand)")
+	fs.StringVar(&dst, "dst", "", "output Excel file or directory (overrides config)")
+	fs.StringVar(&dst, "d", "", "output Excel file or directory (shorthand)")
+	fs.BoolVar(&showVer, "version", false, "show version")
+	fs.BoolVar(&showVer, "v", false, "show version (shorthand)")
+	fs.BoolVar(&noHeadingNumber, "no-heading-number", false, "disable heading numbering (1., 1.1., 1.1.1.)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	if showVer {
 		fmt.Printf("md2xls %s\n", version)
@@ -63,8 +78,13 @@ func run() error {
 	}
 
 	// CLI flags override config values
-	if src != "" {
-		cfg.Src = src
+	if fs.NArg() > 0 && src != "" {
+		return fmt.Errorf("use either -s/--src or positional Markdown paths")
+	}
+	if fs.NArg() > 0 {
+		cfg.Sources = fs.Args()
+	} else if src != "" {
+		cfg.Sources = []string{src}
 	}
 	if dst != "" {
 		cfg.Dst = dst
@@ -73,25 +93,73 @@ func run() error {
 		cfg.HeadingNumber = false
 	}
 
-	cfg.Dst, err = excelOutputPath(cfg.Src, cfg.Dst)
+	cfg.Dst, err = excelOutputPath(cfg.Sources[0], cfg.Dst)
 	if err != nil {
 		return err
 	}
 
-	text, err := os.ReadFile(cfg.Src)
-	if err != nil {
-		return fmt.Errorf("read source file %q: %w", cfg.Src, err)
+	var sheets []renderer.Sheet
+	var names []string
+	for _, source := range cfg.Sources {
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return fmt.Errorf("read source file %q: %w", source, err)
+		}
+		name := cfg.SheetName
+		if len(cfg.Sources) > 1 {
+			name = worksheetName(source, names)
+			names = append(names, name)
+		}
+		sheets = append(sheets, renderer.Sheet{Name: name, Source: source, Components: parser.Parse(string(data))})
 	}
-
-	components := parser.Parse(string(text))
-
-	r := renderer.New(cfg)
-	if err := r.Render(components); err != nil {
+	if err := renderer.New(cfg).RenderSheets(sheets); err != nil {
 		return fmt.Errorf("render: %w", err)
 	}
 
-	fmt.Printf("Successfully converted %s → %s\n", cfg.Src, cfg.Dst)
+	fmt.Printf("Successfully converted %s → %s\n", strings.Join(cfg.Sources, ", "), cfg.Dst)
 	return nil
+}
+
+func worksheetName(source string, used []string) string {
+	file := filepath.Base(source)
+	base := strings.Map(func(r rune) rune {
+		if r < 32 || r == 0xfffe || r == 0xffff || strings.ContainsRune(`:\/?*[]`, r) {
+			return '_'
+		}
+		return r
+	}, strings.TrimSuffix(file, filepath.Ext(file)))
+	if strings.TrimSpace(base) == "" {
+		base = "Sheet"
+	}
+	if strings.EqualFold(base, "History") {
+		base += "_"
+	}
+	for n := 1; ; n++ {
+		suffix := ""
+		if n > 1 {
+			suffix = fmt.Sprintf(" (%d)", n)
+		}
+		// Excel measures sheet names in UTF-16 code units.
+		prefix := base
+		remaining := excelize.MaxSheetNameLength - len(suffix)
+		for i, r := range base {
+			remaining -= utf16.RuneLen(r)
+			if remaining < 0 {
+				prefix = base[:i]
+				break
+			}
+		}
+		name := prefix + suffix
+		if strings.HasPrefix(name, "'") {
+			name = "_" + name[1:]
+		}
+		if strings.HasSuffix(name, "'") {
+			name = name[:len(name)-1] + "_"
+		}
+		if !slices.ContainsFunc(used, func(s string) bool { return strings.EqualFold(s, name) }) {
+			return name
+		}
+	}
 }
 
 // A trailing separator also identifies a directory that Render will create.
@@ -253,7 +321,7 @@ func runInit() error {
 	const content = `# md2xls configuration file
 # See https://github.com/HituziANDO/md2xls for full documentation.
 
-# Input Markdown file path
+# Input Markdown path or ordered list, e.g. src: [cover.md, design.md]
 src: README.md
 
 # Output Excel file path
@@ -279,7 +347,7 @@ max_num_of_characters_per_line: 120
 # Can also be disabled with the --no-heading-number CLI flag.
 heading_number: true
 
-# Excel sheet name
+# Sheet name for single-file export. Multiple inputs use their filenames.
 sheet_name: Sheet1
 
 # Byte threshold for merging table columns (columns exceeding this are merged across two Excel columns)

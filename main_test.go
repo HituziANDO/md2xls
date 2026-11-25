@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -214,6 +215,81 @@ func TestExcelOutputPath(t *testing.T) {
 		got, err := excelOutputPath(src, tc.dst)
 		if err != nil || got != tc.want {
 			t.Errorf("destination %q: got %q, %v; want %q", tc.dst, got, err, tc.want)
+		}
+	}
+}
+
+func TestForwardMultipleSources(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	files := []string{"001_表紙.md", "旧版/画面 一覧.md", "新版/画面 一覧.md"}
+	for i, file := range files {
+		if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(fmt.Sprintf("# 文書%d", i+1)), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := "src: [001_表紙.md, 旧版/画面 一覧.md, 新版/画面 一覧.md]\ndst: 設計書.xlsx\nsheet_name: 個別\n"
+	if err := os.WriteFile(".m2x.yml", []byte(cfg), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name                 string
+		args, sheets, titles []string
+		dst                  string
+	}{
+		{"YAML order", nil, []string{"001_表紙", "画面 一覧", "画面 一覧 (2)"}, []string{"1. 文書1", "1. 文書2", "1. 文書3"}, "設計書.xlsx"},
+		{"positional override", []string{"-d", "cli.xlsx", files[2], files[0]}, []string{"画面 一覧", "001_表紙"}, []string{"1. 文書3", "1. 文書1"}, "cli.xlsx"},
+		{"single override", []string{"-s", files[1], "-d", "one.xlsx"}, []string{"個別"}, []string{"1. 文書2"}, "one.xlsx"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := runForward(tc.args); err != nil {
+				t.Fatal(err)
+			}
+			f, err := excelize.OpenFile(tc.dst)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			if got := f.GetSheetList(); !slices.Equal(got, tc.sheets) {
+				t.Fatalf("sheets = %q, want %q", got, tc.sheets)
+			}
+			for i, sheet := range tc.sheets {
+				if got, err := f.GetCellValue(sheet, "A1"); err != nil || got != tc.titles[i] {
+					t.Errorf("%s!A1 = %q, %v; want %q", sheet, got, err, tc.titles[i])
+				}
+			}
+		})
+	}
+	for _, args := range [][]string{{"-s", files[0], files[1]}, {files[0], "missing.md"}} {
+		if err := runForward(append([]string{"-d", "failed.xlsx"}, args...)); err == nil {
+			t.Fatalf("expected an error for %v", args)
+		}
+		if _, err := os.Stat("failed.xlsx"); !os.IsNotExist(err) {
+			t.Fatalf("unexpected output for %v: %v", args, err)
+		}
+	}
+}
+
+func TestWorksheetName(t *testing.T) {
+	emoji := strings.Repeat("😀", 15)
+	for _, tc := range []struct {
+		file string
+		used []string
+		want string
+	}{
+		{"a[b]:c?.md", nil, "a_b__c_"},
+		{"'quote'.md", nil, "_quote_"},
+		{"HISTORY.md", nil, "HISTORY_"},
+		{".md", nil, "Sheet"},
+		{"sheet1.md", []string{"Sheet1", "Sheet1 (2)"}, "sheet1 (3)"},
+		{emoji + "😀.md", nil, emoji},
+		{emoji + "😀.md", []string{emoji}, strings.Repeat("😀", 13) + " (2)"},
+	} {
+		if got := worksheetName(tc.file, tc.used); got != tc.want {
+			t.Errorf("worksheetName(%q, %q) = %q, want %q", tc.file, tc.used, got, tc.want)
 		}
 	}
 }

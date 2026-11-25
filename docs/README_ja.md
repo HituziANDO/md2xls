@@ -60,6 +60,26 @@ md2xls
 
 設定のデフォルト値（入力: `README.md`、出力: `README.xlsx`）が読み込まれます。
 
+### 複数のMarkdownを1つのExcelにまとめる
+
+オプションの後にファイルを並べると、指定順に1ファイル1シートで出力します。`output/*.md` のように指定した場合は、シェルが展開した順になります。
+
+```sh
+md2xls -d 設計書.xlsx 表紙.md 画面一覧.md 画面遷移.md
+```
+
+毎回同じ構成で変換する場合は、`.m2x.yml` の `src` にシート順でパスを並べます。以下の設定なら `md2xls` だけで同じ結果になります。入力パスは作業ディレクトリを基準に、画像の相対パスは各Markdownのディレクトリを基準に解決します。
+
+```yaml
+src:
+  - 表紙.md
+  - 画面一覧.md
+  - 画面遷移.md
+dst: 設計書.xlsx
+```
+
+CLIで入力を指定すると、設定の入力リスト全体を置き換えます。`-s` は1件専用で、位置引数と併用するとエラーになります。入力が1件なら `sheet_name` を使用します。複数件なら拡張子を除いたファイル名を使用し、使用禁止文字は `_` に置き換え、長い名前はExcelの31文字制限に合わせて短縮します。重複時は ` (2)` から順に付けます。
+
 ### CLIフラグ
 
 | フラグ | 短縮形 | デフォルト | 説明 |
@@ -80,7 +100,7 @@ CLIフラグは設定ファイルの対応する値を上書きします。
 md2xls -s docs/spec.md -d output/spec.xlsx
 ```
 
-`-d` に既存のディレクトリを指定すると、入力ファイルの拡張子を `.xlsx` に変えてその中に保存します。
+`-d` に既存のディレクトリを指定すると、先頭の入力ファイルの拡張子を `.xlsx` に変えてその中に保存します。
 
 カスタム設定ファイルを使用する：
 
@@ -148,7 +168,7 @@ heading_font_size:
 
 | キー | 型 | デフォルト | 説明 |
 |-----|------|---------|-------------|
-| `src` | string | `README.md` | 入力Markdownファイルのパス |
+| `src` | 文字列または文字列のリスト | `README.md` | シート順に並べたMarkdownファイルのパス |
 | `dst` | string | `README.xlsx` | 出力Excelファイルまたはディレクトリのパス |
 | `text.font.family` | string | `Meiryo UI` | 見出し、本文、テーブルのフォントファミリー |
 | `text.font.size` | float | `11.0` | 本文とテーブルのフォントサイズ（pt） |
@@ -156,7 +176,7 @@ heading_font_size:
 | `code.font.size` | float | `10.5` | コードブロックとインラインコードのフォントサイズ（pt） |
 | `max_num_of_characters_per_line` | int | `120` | 折り返しまでの1行あたりの最大文字数 |
 | `heading_number` | bool | `true` | H1〜H4の見出し自動採番を有効化（1., 1.1., 1.1.1., 1.1.1.1.） |
-| `sheet_name` | string | `Sheet1` | Excelシート名 |
+| `sheet_name` | string | `Sheet1` | 入力が1件の場合の出力シート名 |
 | `table_merge_threshold` | int | `80` | 幅の広いテーブル列を2つのExcel列に結合するためのバイト閾値 |
 | `heading_font_size.h1` | float | `24` | H1見出しのフォントサイズ（pt） |
 | `heading_font_size.h2` | float | `20` | H2見出しのフォントサイズ（pt） |

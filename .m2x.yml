@@ -1,7 +1,7 @@
 # md2xls configuration file
 # See https://github.com/HituziANDO/md2xls for full documentation.
 
-# Input Markdown file path
+# Input Markdown path or ordered list, e.g. src: [cover.md, design.md]
 src: README.md
 
 # Output Excel file path
@@ -27,7 +27,7 @@ max_num_of_characters_per_line: 120
 # Can also be disabled with the --no-heading-number CLI flag.
 heading_number: true
 
-# Excel sheet name
+# Sheet name for single-file export. Multiple inputs use their filenames.
 sheet_name: Sheet1
 
 # Byte threshold for merging table columns (columns exceeding this are merged across two Excel columns)

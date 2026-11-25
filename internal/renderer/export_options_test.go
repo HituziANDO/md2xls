@@ -21,7 +21,7 @@ import (
 func TestRenderExportOptions(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.DefaultConfig()
-	cfg.Src, cfg.Dst = filepath.Join(dir, "spec.md"), filepath.Join(dir, "spec.xlsx")
+	cfg.Sources[0], cfg.Dst = filepath.Join(dir, "spec.md"), filepath.Join(dir, "spec.xlsx")
 	cfg.SheetName = "Team's preferences"
 	cfg.Images.LocalOnly = true
 	cfg.ColumnWidths = map[string]float64{"A": 12, "B": 32, "D": 44.5}
@@ -74,7 +74,7 @@ func TestRenderExportOptions(t *testing.T) {
 	if !bytes.Equal(readPart("xl/media/image1.png"), original.Bytes()) {
 		t.Fatal("PNG bytes changed")
 	}
-	sheet := string(readPart("xl/worksheets/sheet2.xml"))
+	sheet := string(readPart("xl/worksheets/sheet1.xml"))
 	for _, want := range []string{`fitToPage="true"`, `paperSize="9"`, `orientation="landscape"`, `fitToWidth="1"`, `fitToHeight="0"`} {
 		if !strings.Contains(sheet, want) {
 			t.Errorf("missing sheet layout attribute %s", want)
@@ -135,7 +135,7 @@ func TestRenderImagePolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg := config.DefaultConfig()
-			cfg.Src, cfg.Dst = filepath.Join(srcDir, "spec.md"), filepath.Join(dir, "out.xlsx")
+			cfg.Sources[0], cfg.Dst = filepath.Join(srcDir, "spec.md"), filepath.Join(dir, "out.xlsx")
 			cfg.Images = tc.opt
 			err := New(cfg).Render([]parser.Component{parser.Image{Path: tc.ref}})
 			if tc.want == "" {

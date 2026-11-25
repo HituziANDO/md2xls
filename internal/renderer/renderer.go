@@ -27,10 +27,7 @@ import (
 
 const cellWidth = 20
 
-var (
-	sheetName = "Sheet1"
-	httpRegex = regexp.MustCompile(`^https?://`)
-)
+var httpRegex = regexp.MustCompile(`^https?://`)
 
 // Renderer converts parsed Markdown components to an Excel file.
 type Renderer struct {
@@ -41,34 +38,70 @@ func New(cfg config.Config) *Renderer {
 	return &Renderer{cfg: cfg}
 }
 
-// Render writes all components to an Excel file at cfg.Dst.
+type Sheet struct {
+	Name       string
+	Source     string
+	Components []parser.Component
+}
+
+// Render writes one parsed Markdown document to the configured sheet.
 func (r *Renderer) Render(components []parser.Component) error {
+	if len(r.cfg.Sources) != 1 {
+		return fmt.Errorf("Render requires exactly one source")
+	}
+	return r.RenderSheets([]Sheet{{Name: r.cfg.SheetName, Source: r.cfg.Sources[0], Components: components}})
+}
+
+// RenderSheets writes the worksheets in order and saves the workbook once.
+func (r *Renderer) RenderSheets(sheets []Sheet) error {
 	cfg := r.cfg
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	srcDir := filepath.Dir(cfg.Src)
-	sheetName = cfg.SheetName
-
+	if len(sheets) == 0 {
+		return fmt.Errorf("at least one worksheet is required")
+	}
 	f := excelize.NewFile()
 	defer f.Close()
-
-	if sheetName == "Sheet1" {
-		// NewFile already creates "Sheet1"; just use it
-		f.SetActiveSheet(0)
-	} else {
-		idx, err := f.NewSheet(sheetName)
-		if err != nil {
-			return fmt.Errorf("create sheet: %w", err)
+	stylist := NewStylist(f, cfg)
+	for i, sheet := range sheets {
+		var err error
+		if i == 0 {
+			err = f.SetSheetName("Sheet1", sheet.Name)
+		} else {
+			_, err = f.NewSheet(sheet.Name)
 		}
-		f.SetActiveSheet(idx)
-		if err := f.DeleteSheet("Sheet1"); err != nil {
-			return fmt.Errorf("delete default sheet: %w", err)
+		if err != nil {
+			return fmt.Errorf("create sheet %q: %w", sheet.Name, err)
+		}
+		if err := renderSheet(f, stylist, sheet); err != nil {
+			return fmt.Errorf("render %q: %w", sheet.Source, err)
 		}
 	}
 
-	stylist := NewStylist(f, cfg)
+	// Create output directory if needed
+	if dir := filepath.Dir(cfg.Dst); dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("create output directory: %w", err)
+		}
+	}
 
+	if err := f.SaveAs(cfg.Dst); err != nil {
+		return fmt.Errorf("save file: %w", err)
+	}
+
+	// Set workbook window size (excelize has no public API for this)
+	if err := setWorkbookWindowSize(cfg.Dst, 19200, 28800); err != nil { // 960x1440
+		return fmt.Errorf("set window size: %w", err)
+	}
+
+	return nil
+}
+
+func renderSheet(f *excelize.File, stylist *Stylist, sheet Sheet) error {
+	cfg := stylist.cfg
+	srcDir := filepath.Dir(sheet.Source)
+	sheetName := sheet.Name
 	// Set column widths for A-ZZ
 	if err := f.SetColWidth(sheetName, "A", "ZZ", cellWidth); err != nil {
 		return fmt.Errorf("set column width: %w", err)
@@ -96,7 +129,7 @@ func (r *Renderer) Render(components []parser.Component) error {
 		}
 	}()
 	rowCur := 1
-	for _, comp := range components {
+	for _, comp := range sheet.Components {
 		cellName, err := excelize.JoinCellName("A", rowCur)
 		if err != nil {
 			return fmt.Errorf("join cell name: %w", err)
@@ -104,35 +137,35 @@ func (r *Renderer) Render(components []parser.Component) error {
 
 		switch c := comp.(type) {
 		case parser.H1:
-			rowCur, err = renderH1(f, stylist, cellName, rowCur, c, cfg.HeadingNumber)
+			rowCur, err = renderH1(f, sheetName, stylist, cellName, rowCur, c, cfg.HeadingNumber)
 		case parser.H2:
-			rowCur, err = renderH2(f, stylist, cellName, rowCur, c, cfg.HeadingNumber)
+			rowCur, err = renderH2(f, sheetName, stylist, cellName, rowCur, c, cfg.HeadingNumber)
 		case parser.H3:
-			rowCur, err = renderH3(f, stylist, cellName, rowCur, c, cfg.HeadingNumber)
+			rowCur, err = renderH3(f, sheetName, stylist, cellName, rowCur, c, cfg.HeadingNumber)
 		case parser.H4:
-			rowCur, err = renderH4(f, stylist, cellName, rowCur, c, cfg.HeadingNumber)
+			rowCur, err = renderH4(f, sheetName, stylist, cellName, rowCur, c, cfg.HeadingNumber)
 		case parser.H5:
-			rowCur, err = renderH5(f, stylist, cellName, rowCur, c)
+			rowCur, err = renderH5(f, sheetName, stylist, cellName, rowCur, c)
 		case parser.H6:
-			rowCur, err = renderH6(f, stylist, cellName, rowCur, c)
+			rowCur, err = renderH6(f, sheetName, stylist, cellName, rowCur, c)
 		case *parser.Table:
-			rowCur, err = renderTable(f, stylist, rowCur, c, cfg.TableMergeThreshold)
+			rowCur, err = renderTable(f, sheetName, stylist, rowCur, c, cfg.TableMergeThreshold)
 		case parser.Image:
 			var tmpDir string
-			rowCur, tmpDir, err = renderImage(f, cellName, rowCur, c, srcDir, cfg.Images)
+			rowCur, tmpDir, err = renderImage(f, sheetName, cellName, rowCur, c, srcDir, cfg.Images)
 			if tmpDir != "" {
 				tmpDirs = append(tmpDirs, tmpDir)
 			}
 		case *parser.Code:
-			rowCur, err = renderCode(f, stylist, rowCur, c)
+			rowCur, err = renderCode(f, sheetName, stylist, rowCur, c)
 		case parser.List:
-			rowCur, err = renderList(f, stylist, rowCur, c)
+			rowCur, err = renderList(f, sheetName, stylist, rowCur, c)
 		case parser.Blockquote:
-			rowCur, err = renderBlockquote(f, stylist, rowCur, c)
+			rowCur, err = renderBlockquote(f, sheetName, stylist, rowCur, c)
 		case parser.HorizontalRule:
-			rowCur, err = renderHR(f, stylist, rowCur)
+			rowCur, err = renderHR(f, sheetName, stylist, rowCur)
 		case parser.PlainText:
-			rowCur, err = renderPlainText(f, stylist, rowCur, c, cfg.MaxNumOfCharactersPerLine)
+			rowCur, err = renderPlainText(f, sheetName, stylist, rowCur, c, cfg.MaxNumOfCharactersPerLine)
 		default:
 			rowCur++
 		}
@@ -142,26 +175,10 @@ func (r *Renderer) Render(components []parser.Component) error {
 		}
 	}
 
-	// Create output directory if needed
-	if dir := filepath.Dir(cfg.Dst); dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("create output directory: %w", err)
-		}
-	}
-
-	if err := f.SaveAs(cfg.Dst); err != nil {
-		return fmt.Errorf("save file: %w", err)
-	}
-
-	// Set workbook window size (excelize has no public API for this)
-	if err := setWorkbookWindowSize(cfg.Dst, 19200, 28800); err != nil { // 960x1440
-		return fmt.Errorf("set window size: %w", err)
-	}
-
 	return nil
 }
 
-func renderH3(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H3, headingNumber bool) (int, error) {
+func renderH3(f *excelize.File, sheetName string, stylist *Stylist, cellName string, row int, h parser.H3, headingNumber bool) (int, error) {
 	style, err := stylist.H3Style()
 	if err != nil {
 		return row, err
@@ -175,7 +192,7 @@ func renderH3(f *excelize.File, stylist *Stylist, cellName string, row int, h pa
 	return row + 1, nil
 }
 
-func renderH4(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H4, headingNumber bool) (int, error) {
+func renderH4(f *excelize.File, sheetName string, stylist *Stylist, cellName string, row int, h parser.H4, headingNumber bool) (int, error) {
 	style, err := stylist.H4Style()
 	if err != nil {
 		return row, err
@@ -189,7 +206,7 @@ func renderH4(f *excelize.File, stylist *Stylist, cellName string, row int, h pa
 	return row + 1, nil
 }
 
-func renderH5(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H5) (int, error) {
+func renderH5(f *excelize.File, sheetName string, stylist *Stylist, cellName string, row int, h parser.H5) (int, error) {
 	style, err := stylist.H5Style()
 	if err != nil {
 		return row, err
@@ -199,7 +216,7 @@ func renderH5(f *excelize.File, stylist *Stylist, cellName string, row int, h pa
 	return row + 1, nil
 }
 
-func renderH6(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H6) (int, error) {
+func renderH6(f *excelize.File, sheetName string, stylist *Stylist, cellName string, row int, h parser.H6) (int, error) {
 	style, err := stylist.H6Style()
 	if err != nil {
 		return row, err
@@ -209,7 +226,7 @@ func renderH6(f *excelize.File, stylist *Stylist, cellName string, row int, h pa
 	return row + 1, nil
 }
 
-func renderH1(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H1, headingNumber bool) (int, error) {
+func renderH1(f *excelize.File, sheetName string, stylist *Stylist, cellName string, row int, h parser.H1, headingNumber bool) (int, error) {
 	style, err := stylist.H1Style()
 	if err != nil {
 		return row, err
@@ -223,7 +240,7 @@ func renderH1(f *excelize.File, stylist *Stylist, cellName string, row int, h pa
 	return row + 1, nil
 }
 
-func renderH2(f *excelize.File, stylist *Stylist, cellName string, row int, h parser.H2, headingNumber bool) (int, error) {
+func renderH2(f *excelize.File, sheetName string, stylist *Stylist, cellName string, row int, h parser.H2, headingNumber bool) (int, error) {
 	style, err := stylist.H2Style()
 	if err != nil {
 		return row, err
@@ -238,7 +255,7 @@ func renderH2(f *excelize.File, stylist *Stylist, cellName string, row int, h pa
 	return row + 1, nil
 }
 
-func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Table, mergeThreshold int) (int, error) {
+func renderTable(f *excelize.File, sheetName string, stylist *Stylist, row int, table *parser.Table, mergeThreshold int) (int, error) {
 	maxBytes := table.MaxColDataBytes()
 
 	colNum := 1
@@ -322,7 +339,7 @@ func renderTable(f *excelize.File, stylist *Stylist, row int, table *parser.Tabl
 	return row, nil
 }
 
-func renderImage(f *excelize.File, cellName string, row int, img parser.Image, srcDir string, opts config.ImageOptions) (int, string, error) {
+func renderImage(f *excelize.File, sheetName string, cellName string, row int, img parser.Image, srcDir string, opts config.ImageOptions) (int, string, error) {
 	var tmpDir string
 	fail := func(err error) (int, string, error) {
 		if opts.LocalOnly || opts.Missing == "error" {
@@ -451,7 +468,7 @@ func localImage(name, dir string) ([]byte, error) {
 	return io.ReadAll(file)
 }
 
-func renderCode(f *excelize.File, stylist *Stylist, row int, code *parser.Code) (int, error) {
+func renderCode(f *excelize.File, sheetName string, stylist *Stylist, row int, code *parser.Code) (int, error) {
 	style, err := stylist.CodeStyle()
 	if err != nil {
 		return row, err
@@ -464,7 +481,7 @@ func renderCode(f *excelize.File, stylist *Stylist, row int, code *parser.Code) 
 	return row + code.RowNum(), nil
 }
 
-func renderList(f *excelize.File, stylist *Stylist, row int, list parser.List) (int, error) {
+func renderList(f *excelize.File, sheetName string, stylist *Stylist, row int, list parser.List) (int, error) {
 	style, err := stylist.ListStyle()
 	if err != nil {
 		return row, err
@@ -504,7 +521,7 @@ func renderList(f *excelize.File, stylist *Stylist, row int, list parser.List) (
 	return row, nil
 }
 
-func renderHR(f *excelize.File, stylist *Stylist, row int) (int, error) {
+func renderHR(f *excelize.File, sheetName string, stylist *Stylist, row int) (int, error) {
 	style, err := stylist.HRStyle()
 	if err != nil {
 		return row, err
@@ -516,7 +533,7 @@ func renderHR(f *excelize.File, stylist *Stylist, row int) (int, error) {
 	return row + 1, nil
 }
 
-func renderBlockquote(f *excelize.File, stylist *Stylist, row int, bq parser.Blockquote) (int, error) {
+func renderBlockquote(f *excelize.File, sheetName string, stylist *Stylist, row int, bq parser.Blockquote) (int, error) {
 	style, err := stylist.BlockquoteStyle()
 	if err != nil {
 		return row, err
@@ -569,7 +586,7 @@ func toRichTextRunsWithLink(segments []parser.RichTextSegment, cfg config.Config
 	return runs
 }
 
-func renderPlainText(f *excelize.File, stylist *Stylist, row int, pt parser.PlainText, maxChars int) (int, error) {
+func renderPlainText(f *excelize.File, sheetName string, stylist *Stylist, row int, pt parser.PlainText, maxChars int) (int, error) {
 	style, err := stylist.PlainTextStyle()
 	if err != nil {
 		return row, err

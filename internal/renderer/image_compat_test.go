@@ -42,7 +42,7 @@ func TestRenderLiteralImageNamesAndDisplaySize(t *testing.T) {
 				}
 			}
 			cfg := config.DefaultConfig()
-			cfg.Src, cfg.Dst = filepath.Join(dir, "test.md"), filepath.Join(dir, "test.xlsx")
+			cfg.Sources[0], cfg.Dst = filepath.Join(dir, "test.md"), filepath.Join(dir, "test.xlsx")
 			cfg.Images.LocalOnly = true
 			components := parser.Parse("![First](preview-100%.png)\n\n![Second](my%20preview.png)\n\n![Third](comparison.jpg)\n")
 			if err := New(cfg).Render(components); err != nil {
@@ -136,7 +136,7 @@ func TestRenderSVGWithEmbeddedScreenshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.DefaultConfig()
-	cfg.Src = filepath.Join(dir, "layout.md")
+	cfg.Sources[0] = filepath.Join(dir, "layout.md")
 	cfg.Dst = filepath.Join(dir, "layout.xlsx")
 	cfg.Images.LocalOnly = true
 	if err := New(cfg).Render(parser.Parse("![layout](layout.svg)")); err != nil {

@@ -48,7 +48,7 @@ type Config struct {
 	Images                    ImageOptions       `yaml:"images"`
 	ColumnWidths              map[string]float64 `yaml:"column_widths"`
 	Print                     PrintOptions       `yaml:"print"`
-	Src                       string             `yaml:"src"`
+	Sources                   []string           `yaml:"src"`
 	Dst                       string             `yaml:"dst"`
 	Text                      FontStyle          `yaml:"-"`
 	Code                      FontStyle          `yaml:"-"`
@@ -60,12 +60,39 @@ type Config struct {
 	Reverse                   ReverseConfig      `yaml:"-"`
 }
 
+// A scalar src preserves the original single-file configuration.
+type sourcePaths []string
+
+func (paths *sourcePaths) UnmarshalYAML(node *yaml.Node) error {
+	var values []string
+	switch node.Kind {
+	case yaml.ScalarNode:
+		values = []string{node.Value}
+	case yaml.SequenceNode:
+		if err := node.Decode(&values); err != nil {
+			return fmt.Errorf("src: %w", err)
+		}
+	default:
+		return fmt.Errorf("src must be a path or a list of paths")
+	}
+	if len(values) == 0 {
+		return fmt.Errorf("src must contain at least one Markdown path")
+	}
+	for _, path := range values {
+		if path == "" {
+			return fmt.Errorf("src contains an empty Markdown path")
+		}
+	}
+	*paths = values
+	return nil
+}
+
 // rawConfig mirrors the YAML structure with nested font objects.
 type rawConfig struct {
 	Images       ImageOptions       `yaml:"images"`
 	ColumnWidths map[string]float64 `yaml:"column_widths"`
 	Print        PrintOptions       `yaml:"print"`
-	Src          *string            `yaml:"src"`
+	Src          *sourcePaths       `yaml:"src"`
 	Dst          *string            `yaml:"dst"`
 	Text         *struct {
 		Font *struct {
@@ -102,8 +129,8 @@ type rawConfig struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Src: "README.md",
-		Dst: "README.xlsx",
+		Sources: []string{"README.md"},
+		Dst:     "README.xlsx",
 		Text: FontStyle{
 			Family: "Meiryo UI",
 			Size:   11.0,
@@ -150,7 +177,7 @@ func Load(path string) (Config, error) {
 	}
 
 	if raw.Src != nil {
-		cfg.Src = *raw.Src
+		cfg.Sources = *raw.Src
 	}
 	if raw.Dst != nil {
 		cfg.Dst = *raw.Dst

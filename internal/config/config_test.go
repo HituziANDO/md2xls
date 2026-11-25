@@ -3,14 +3,15 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if cfg.Src != "README.md" {
-		t.Errorf("Src: got %q, want %q", cfg.Src, "README.md")
+	if !slices.Equal(cfg.Sources, []string{"README.md"}) {
+		t.Errorf("Src: got %q, want %q", cfg.Sources, "README.md")
 	}
 	if cfg.Dst != "README.xlsx" {
 		t.Errorf("Dst: got %q, want %q", cfg.Dst, "README.xlsx")
@@ -64,8 +65,8 @@ func TestLoad_MissingFile(t *testing.T) {
 	}
 
 	def := DefaultConfig()
-	if cfg.Src != def.Src {
-		t.Errorf("Src: got %q, want %q", cfg.Src, def.Src)
+	if !slices.Equal(cfg.Sources, def.Sources) {
+		t.Errorf("Src: got %q, want %q", cfg.Sources, def.Sources)
 	}
 	if cfg.Dst != def.Dst {
 		t.Errorf("Dst: got %q, want %q", cfg.Dst, def.Dst)
@@ -112,8 +113,8 @@ max_num_of_characters_per_line: 80
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.Src != "input.md" {
-		t.Errorf("Src: got %q, want %q", cfg.Src, "input.md")
+	if !slices.Equal(cfg.Sources, []string{"input.md"}) {
+		t.Errorf("Src: got %q, want %q", cfg.Sources, "input.md")
 	}
 	if cfg.Dst != "output.xlsx" {
 		t.Errorf("Dst: got %q, want %q", cfg.Dst, "output.xlsx")
@@ -151,8 +152,8 @@ func TestLoad_PartialYAML(t *testing.T) {
 	}
 
 	def := DefaultConfig()
-	if cfg.Src != "custom.md" {
-		t.Errorf("Src: got %q, want %q", cfg.Src, "custom.md")
+	if !slices.Equal(cfg.Sources, []string{"custom.md"}) {
+		t.Errorf("Src: got %q, want %q", cfg.Sources, "custom.md")
 	}
 	// All other fields should be defaults
 	if cfg.Dst != def.Dst {
