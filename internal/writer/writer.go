@@ -107,14 +107,14 @@ func (w *Writer) plainTextToMarkdown(p parser.PlainText) string {
 	if len(p.Links) > 0 {
 		displayText := p.Text
 		if len(p.RichText) > 0 {
-			displayText = richTextToMarkdown(p.RichText, w.cfg.Code.Family)
+			displayText = richTextToMarkdown(p.RichText, false)
 		}
 		// Wrap with the first link's URL as a Markdown link.
 		return "[" + displayText + "](" + p.Links[0].URL + ")"
 	}
 	// If the component has rich text segments, convert them to inline Markdown.
 	if len(p.RichText) > 0 {
-		return richTextToMarkdown(p.RichText, w.cfg.Code.Family)
+		return richTextToMarkdown(p.RichText, false)
 	}
 	// Otherwise, output the plain text as-is.
 	return p.Text
@@ -128,12 +128,12 @@ func (w *Writer) tableToMarkdown(t parser.Table) string {
 	// Header row
 	buf.WriteString("|")
 	for i, h := range t.Header {
-		text := h
+		text := escapeTableCell(h)
 		if i < len(t.HeaderRichText) && len(t.HeaderRichText[i]) > 0 {
-			text = richTextToMarkdown(t.HeaderRichText[i], w.cfg.Code.Family)
+			text = richTextToMarkdown(t.HeaderRichText[i], true)
 		}
 		buf.WriteString(" ")
-		buf.WriteString(escapeTableCell(text))
+		buf.WriteString(text)
 		buf.WriteString(" |")
 	}
 	buf.WriteString("\n")
@@ -155,12 +155,12 @@ func (w *Writer) tableToMarkdown(t parser.Table) string {
 	for rowIdx, row := range t.Data {
 		buf.WriteString("|")
 		for colIdx, cell := range row {
-			text := cell
+			text := escapeTableCell(cell)
 			if rowIdx < len(t.DataRichText) && colIdx < len(t.DataRichText[rowIdx]) && len(t.DataRichText[rowIdx][colIdx]) > 0 {
-				text = richTextToMarkdown(t.DataRichText[rowIdx][colIdx], w.cfg.Code.Family)
+				text = richTextToMarkdown(t.DataRichText[rowIdx][colIdx], true)
 			}
 			buf.WriteString(" ")
-			buf.WriteString(escapeTableCell(text))
+			buf.WriteString(text)
 			buf.WriteString(" |")
 		}
 		buf.WriteString("\n")
@@ -180,7 +180,7 @@ func (w *Writer) listToMarkdown(l parser.List) string {
 		// Determine the item text with rich text formatting
 		text := item.Text
 		if len(item.RichText) > 0 {
-			text = richTextToMarkdown(item.RichText, w.cfg.Code.Family)
+			text = richTextToMarkdown(item.RichText, false)
 		}
 
 		if item.Checked != nil {
@@ -207,10 +207,16 @@ func (w *Writer) listToMarkdown(l parser.List) string {
 
 // richTextToMarkdown converts RichTextSegment slices to Markdown inline syntax.
 // Wrap order (innermost to outermost): Strike -> Bold/Italic -> Code (last).
-func richTextToMarkdown(segments []parser.RichTextSegment, codeFontFamily string) string {
+func richTextToMarkdown(segments []parser.RichTextSegment, tableCell bool) string {
 	var buf strings.Builder
 	for _, seg := range segments {
 		text := seg.Text
+		if tableCell {
+			text = escapeTableCell(text)
+			if seg.Code {
+				text = strings.ReplaceAll(text, "<br>", "&#10;")
+			}
+		}
 
 		// 1. Strikethrough (innermost)
 		if seg.Strike {
@@ -255,4 +261,4 @@ func escapeTableCell(text string) string {
 	return tableEscapes.Replace(text)
 }
 
-var tableEscapes = strings.NewReplacer("\r\n", "<br>", "\n", "<br>", "\r", "<br>", "|", "\\|")
+var tableEscapes = strings.NewReplacer("&", "&amp;", "<", "&lt;", "\\", "\\\\", "\r\n", "<br>", "\n", "<br>", "\r", "<br>", "|", "\\|")

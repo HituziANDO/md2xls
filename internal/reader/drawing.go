@@ -98,6 +98,8 @@ func worksheetDrawings(book fs.FS) (map[string][]string, error) {
 		if !ok {
 			continue
 		}
+		// Keep worksheets without drawings in the directory as well.
+		drawings[sheet.Name] = nil
 		rels, err := partRelationships(book, part)
 		if err != nil {
 			return nil, err

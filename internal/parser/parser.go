@@ -9,19 +9,20 @@ import (
 )
 
 var (
-	h1Regex    = regexp.MustCompile(`^#\s+(.+)`)
-	h2Regex    = regexp.MustCompile(`^##\s+(.+)`)
-	h3Regex    = regexp.MustCompile(`^###\s+(.+)`)
-	h4Regex    = regexp.MustCompile(`^####\s+(.+)`)
-	h5Regex    = regexp.MustCompile(`^#####\s+(.+)`)
-	h6Regex    = regexp.MustCompile(`^######\s+(.+)`)
-	tableRegex = regexp.MustCompile(`^\|.+\|`)
+	h1Regex         = regexp.MustCompile(`^#\s+(.+)`)
+	h2Regex         = regexp.MustCompile(`^##\s+(.+)`)
+	h3Regex         = regexp.MustCompile(`^###\s+(.+)`)
+	h4Regex         = regexp.MustCompile(`^####\s+(.+)`)
+	h5Regex         = regexp.MustCompile(`^#####\s+(.+)`)
+	h6Regex         = regexp.MustCompile(`^######\s+(.+)`)
+	tableRegex      = regexp.MustCompile(`^\|.+\|`)
+	tableBreakRegex = regexp.MustCompile(`(?i)<br[ \t]*/?>`)
 	// HTML image: <img src="..." > or <img src='...'>
 	htmlImgRegex = regexp.MustCompile(`<img[^>]*?src\s*=\s*["']([^"']+)["'][^>]*>`)
 	// Markdown image: ![alt](url)
 	mdImgRegex = regexp.MustCompile(`^!\[([^\]]*)\]\((\S+?)(?:\s+"[^"]*")?\)\s*$`)
 	codeRegex  = regexp.MustCompile(`^\s*` + "```" + `(.*)$`)
-	hrRegex = regexp.MustCompile(`^\s*(?:---+|\*\*\*+|___+)\s*$`)
+	hrRegex    = regexp.MustCompile(`^\s*(?:---+|\*\*\*+|___+)\s*$`)
 	// Unordered list: - item, * item, + item (with optional leading spaces)
 	ulRegex = regexp.MustCompile(`^(\s*)([-*+])\s+(.+)`)
 	// Ordered list: 1. item, 2. item (with optional leading spaces)
@@ -31,23 +32,23 @@ var (
 	// Blockquote: > text
 	blockquoteRegex = regexp.MustCompile(`^>\s?(.*)`)
 	// Inline formatting patterns for stripping
-	boldRegex              = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	italicRegex            = regexp.MustCompile(`\*(.+?)\*`)
-	underscoreBoldRegex    = regexp.MustCompile(`__(.+?)__`)
-	underscoreItalicRegex  = regexp.MustCompile(`\b_(.+?)_\b`)
-	inlineCodeRegex        = regexp.MustCompile("`" + `([^` + "`" + `]+)` + "`")
-	linkRegex              = regexp.MustCompile(`\[([^\]]+)\]\((\S+?)(?:\s+"[^"]*")?\)`)
-	autolinkRegex          = regexp.MustCompile(`<(https?://[^>]+)>`)
-	htmlCommentRegex       = regexp.MustCompile(`<!--[\s\S]*?-->`)
-	strikeRegex            = regexp.MustCompile(`~~(.+?)~~`)
+	boldRegex             = regexp.MustCompile(`(?s)\*\*(.+?)\*\*`)
+	italicRegex           = regexp.MustCompile(`(?s)\*(.+?)\*`)
+	underscoreBoldRegex   = regexp.MustCompile(`(?s)__(.+?)__`)
+	underscoreItalicRegex = regexp.MustCompile(`(?s)\b_(.+?)_\b`)
+	inlineCodeRegex       = regexp.MustCompile("`" + `([^` + "`" + `]+)` + "`")
+	linkRegex             = regexp.MustCompile(`\[([^\]]+)\]\((\S+?)(?:\s+"[^"]*")?\)`)
+	autolinkRegex         = regexp.MustCompile(`<(https?://[^>]+)>`)
+	htmlCommentRegex      = regexp.MustCompile(`<!--[\s\S]*?-->`)
+	strikeRegex           = regexp.MustCompile(`(?s)~~(.+?)~~`)
 	// Rich text formatting patterns (for ParseRichText)
-	boldItalicRe           = regexp.MustCompile(`\*\*\*(.+?)\*\*\*`)
-	boldOnlyRe             = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	italicOnlyRe           = regexp.MustCompile(`\*(.+?)\*`)
-	underscoreBoldItalicRe = regexp.MustCompile(`___(.+?)___`)
-	underscoreBoldOnlyRe   = regexp.MustCompile(`__(.+?)__`)
-	underscoreItalicOnlyRe = regexp.MustCompile(`\b_(.+?)_\b`)
-	strikeRe               = regexp.MustCompile(`~~(.+?)~~`)
+	boldItalicRe           = regexp.MustCompile(`(?s)\*\*\*(.+?)\*\*\*`)
+	boldOnlyRe             = regexp.MustCompile(`(?s)\*\*(.+?)\*\*`)
+	italicOnlyRe           = regexp.MustCompile(`(?s)\*(.+?)\*`)
+	underscoreBoldItalicRe = regexp.MustCompile(`(?s)___(.+?)___`)
+	underscoreBoldOnlyRe   = regexp.MustCompile(`(?s)__(.+?)__`)
+	underscoreItalicOnlyRe = regexp.MustCompile(`(?s)\b_(.+?)_\b`)
+	strikeRe               = regexp.MustCompile(`(?s)~~(.+?)~~`)
 )
 
 // StripInlineFormatting removes markdown inline formatting from text
@@ -439,19 +440,38 @@ func Parse(text string) []Component {
 // Returns plain text cells and corresponding rich text segments.
 func splitTableRow(s string) ([]string, [][]RichTextSegment) {
 	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "|") {
-		s = s[1:]
+	s = strings.TrimPrefix(s, "|")
+	var parts []string
+	var cell strings.Builder
+	trailingDelimiter := false
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '\\' && i+1 < len(s) && (s[i+1] == '|' || s[i+1] == '\\'):
+			i++
+			cell.WriteByte(s[i])
+		case s[i] == '|':
+			trailingDelimiter = i == len(s)-1
+			parts = append(parts, cell.String())
+			cell.Reset()
+		default:
+			cell.WriteByte(s[i])
+		}
 	}
-	if strings.HasSuffix(s, "|") {
-		s = s[:len(s)-1]
+	if !trailingDelimiter {
+		parts = append(parts, cell.String())
 	}
-	parts := strings.Split(s, "|")
+
 	cells := make([]string, len(parts))
 	richTexts := make([][]RichTextSegment, len(parts))
 	for i, p := range parts {
-		trimmed := strings.TrimSpace(p)
-		cells[i] = StripInlineFormatting(trimmed)
-		richTexts[i] = ParseRichText(trimmed)
+		content := strings.TrimSpace(p)
+		// Protect literal tags in inline code before interpreting table line breaks.
+		content = inlineCodeRegex.ReplaceAllStringFunc(content, func(code string) string {
+			return strings.ReplaceAll(code, "<", "&lt;")
+		})
+		content = tableBreakRegex.ReplaceAllString(content, "\n")
+		cells[i] = StripInlineFormatting(content)
+		richTexts[i] = ParseRichText(content)
 	}
 	return cells, richTexts
 }

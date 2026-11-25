@@ -2,7 +2,9 @@ package reader
 
 import (
 	"archive/zip"
+	"bytes"
 	"cmp"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -89,6 +91,13 @@ func (r *Reader) ReadSheets(xlsxPath string) ([]Sheet, error) {
 	var result []Sheet
 	imageNumber := 0
 	for i, sheet := range sheets {
+		sheetDrawings, isWorksheet := drawings[sheet]
+		if !isWorksheet {
+			if r.cfg.SheetName != "" {
+				return nil, fmt.Errorf("sheet %q is not a worksheet", sheet)
+			}
+			continue
+		}
 		number := firstSheet + i + 1
 		sheetReader := *r
 		if r.cfg.Reverse.SplitSheets {
@@ -97,7 +106,7 @@ func (r *Reader) ReadSheets(xlsxPath string) ([]Sheet, error) {
 		}
 		var layouts []parser.Image
 		var diagrams []parser.Component
-		for _, drawing := range drawings[sheet] {
+		for _, drawing := range sheetDrawings {
 			images, diagram, err := sheetReader.readDrawing(&archive.Reader, drawing, &imageNumber)
 			if err != nil {
 				return nil, fmt.Errorf("sheet %q drawing: %w", sheet, err)
@@ -113,6 +122,9 @@ func (r *Reader) ReadSheets(xlsxPath string) ([]Sheet, error) {
 		}
 		blocks = append(blocks, diagrams...)
 		result = append(result, Sheet{Number: number, Name: sheet, Components: blocks})
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("workbook contains no worksheets")
 	}
 	return result, nil
 }
@@ -183,6 +195,32 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 	maxRow = max(maxRow, lastPictureRow)
 	if maxRow == 0 && len(layouts) == 0 {
 		return nil, nil
+	}
+
+	externalLinkRows := make(map[int]bool)
+	refs, err := f.GetHyperLinkCells(sheet, "External")
+	if err != nil {
+		return nil, err
+	}
+	for _, ref := range refs {
+		start, end, ranged := strings.Cut(ref, ":")
+		col, first, err := excelize.CellNameToCoordinates(start)
+		if err != nil {
+			return nil, err
+		}
+		if col != 1 {
+			continue
+		}
+		last := first
+		if ranged {
+			_, last, err = excelize.CellNameToCoordinates(end)
+			if err != nil {
+				return nil, err
+			}
+		}
+		for row := first; row <= min(last, maxRow); row++ {
+			externalLinkRows[row] = true
+		}
 	}
 
 	var components []parser.Component
@@ -365,7 +403,7 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 				if paragraphText.Len() == 0 {
 					paragraph.Line = row
 				}
-				if hyperlink != "" {
+				if hyperlink != "" && externalLinkRows[row] {
 					paragraph.Links = []parser.LinkInfo{{Text: value, URL: hyperlink}}
 				}
 				runs := cellRichText(f, sheet, cellRef, value, ps.Font, r.cfg.Code.Family)
@@ -378,6 +416,9 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 				}
 				paragraphText.WriteString(value)
 				paragraph.RichText = append(paragraph.RichText, runs...)
+				if hyperlink != "" && !externalLinkRows[row] {
+					flushParagraph()
+				}
 			}
 			row++
 
@@ -603,8 +644,10 @@ func (r *Reader) readImage(pic excelize.Picture, imageNum, row int) (parser.Imag
 		ext = "." + ext
 	}
 
-	filename := fmt.Sprintf("image_%03d%s", imageNum, ext)
-	imgPath := filepath.Join(imgDir, filename)
+	imgPath, err := saveImage(imgDir, imageNum, ext, pic.File)
+	if err != nil {
+		return parser.Image{}, err
+	}
 
 	absPath, err := filepath.Abs(imgPath)
 	if err != nil {
@@ -618,14 +661,51 @@ func (r *Reader) readImage(pic excelize.Picture, imageNum, row int) (parser.Imag
 	if err != nil {
 		return parser.Image{}, err
 	}
-	if err := os.WriteFile(imgPath, pic.File, 0o644); err != nil {
-		return parser.Image{}, err
-	}
 	img := parser.Image{Path: filepath.ToSlash(relativePath), Line: row}
 	if pic.Format != nil {
 		img.Alt = pic.Format.AltText
 	}
 	return img, nil
+}
+
+// Reserve a new name before writing so earlier Markdown files keep their images.
+func saveImage(dir string, number int, ext string, data []byte) (string, error) {
+	base := fmt.Sprintf("image_%03d", number)
+	for n := 1; ; n++ {
+		name := base
+		if n > 1 {
+			name = fmt.Sprintf("%s_%d", base, n)
+		}
+		path := filepath.Join(dir, name+ext)
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if os.IsExist(err) {
+			info, err := os.Lstat(path)
+			if err != nil {
+				return "", err
+			}
+			if !info.Mode().IsRegular() {
+				continue
+			}
+			existing, err := os.ReadFile(path)
+			if err != nil {
+				return "", err
+			}
+			if bytes.Equal(existing, data) {
+				return path, nil
+			}
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, writeErr := file.Write(data)
+		closeErr := file.Close()
+		if err := errors.Join(writeErr, closeErr); err != nil {
+			os.Remove(path)
+			return "", err
+		}
+		return path, nil
+	}
 }
 
 // readTable reads a table starting at the current row (header row with #DDDDDD fill).

@@ -4,6 +4,9 @@ import (
 	"archive/zip"
 	"bytes"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"os"
 	"path/filepath"
@@ -417,4 +420,180 @@ func TestReverseSingleColumnTables(t *testing.T) {
 			t.Errorf("%s: got %q, %v; want %q", name, got, err, want+suffix)
 		}
 	}
+}
+
+func TestReverseTableRoundTrip(t *testing.T) {
+	t.Chdir(t.TempDir())
+	f := excelize.NewFile()
+	defer f.Close()
+	values := map[string]string{"A1": "左|列", "B1": "右\n列", "A2": `a\|b`, "B2": "改行\n追記", "A3": "<br> &lt;br&gt;", "B3": "右端|"}
+	for cell, value := range values {
+		if err := f.SetCellStr("Sheet1", cell, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.SetCellRichText("Sheet1", "B2", []excelize.RichTextRun{{Text: values["B2"], Font: &excelize.Font{Bold: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.SaveAs("original.xlsx"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runReverse([]string{"-s", "original.xlsx"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runForward([]string{"-s", "original.md", "-d", "rebuilt.xlsx"}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := excelize.OpenFile("rebuilt.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	for cell, want := range values {
+		if got, err := out.GetCellValue("Sheet1", cell); err != nil || got != want {
+			t.Errorf("%s = %q (%v), want %q", cell, got, err, want)
+		}
+	}
+	runs, err := out.GetCellRichText("Sheet1", "B2")
+	if err != nil || len(runs) != 1 || runs[0].Font == nil || !runs[0].Font.Bold {
+		t.Errorf("lost bold multiline text: %v, %v", runs, err)
+	}
+}
+
+func TestReverseSharedImageDirectory(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for i, name := range []string{"first", "second"} {
+		img := image.NewGray(image.Rect(0, 0, 1, 1))
+		img.SetGray(0, 0, color.Gray{Y: uint8(i)})
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, img); err != nil {
+			t.Fatal(err)
+		}
+		f := excelize.NewFile()
+		defer f.Close()
+		if err := f.AddPictureFromBytes("Sheet1", "A1", &excelize.Picture{Extension: ".png", File: buf.Bytes()}); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.SaveAs(name + ".xlsx"); err != nil {
+			t.Fatal(err)
+		}
+		if err := runReverse([]string{"-s", name + ".xlsx"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := runReverse([]string{"-s", "second.xlsx"}); err != nil {
+		t.Fatal(err)
+	}
+	for i, name := range []string{"first", "second"} {
+		b, err := os.ReadFile(name + ".md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, after, ok := strings.Cut(string(b), "](")
+		path, _, end := strings.Cut(after, ")")
+		if !ok || !end {
+			t.Fatalf("no image link: %q", b)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		img, err := png.Decode(bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := color.GrayModel.Convert(img.At(0, 0)).(color.Gray).Y; got != uint8(i) {
+			t.Errorf("%s now links to the wrong image", name)
+		}
+	}
+	entries, err := os.ReadDir("images")
+	if err != nil || len(entries) != 2 {
+		t.Errorf("expected two images after repeat conversion: %v, %v", entries, err)
+	}
+}
+
+func TestReverseChartSheet(t *testing.T) {
+	t.Chdir(t.TempDir())
+	f := excelize.NewFile()
+	defer f.Close()
+	if err := f.AddChartSheet("Chart1", &excelize.Chart{Type: excelize.Line}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.NewSheet("Sheet 2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.SaveAs("charts.xlsx"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runReverse([]string{"-s", "charts.xlsx", "--split-sheets"}); err != nil {
+		t.Fatal(err)
+	}
+	files, err := os.ReadDir("charts")
+	if err != nil || len(files) != 2 || files[0].Name() != "001_Sheet1.md" || files[1].Name() != "003_Sheet 2.md" {
+		t.Fatalf("unexpected worksheets: %v, %v", files, err)
+	}
+	if err := runReverse([]string{"-s", "charts.xlsx", "--sheet", "Chart1"}); err == nil || !strings.Contains(err.Error(), "not a worksheet") {
+		t.Fatalf("unexpected chart selection result: %v", err)
+	}
+}
+
+func TestReverseInternalLinkRoundTrip(t *testing.T) {
+	t.Chdir(t.TempDir())
+	f := excelize.NewFile()
+	defer f.Close()
+	if _, err := f.NewSheet("Sheet 2"); err != nil {
+		t.Fatal(err)
+	}
+	for _, link := range []struct{ cell, text, target, kind string }{
+		{"A1", "画面一覧へ", "Sheet1!B1", "Location"},
+		{"A2", "別シート", "'Sheet 2'!A1", "Location"},
+		{"A3", "資料", "../docs/file.pdf", "External"},
+		{"A5", "仕様", "https://example.com/spec", "External"},
+	} {
+		if err := f.SetCellStr("Sheet1", link.cell, link.text); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.SetCellHyperLink("Sheet1", link.cell, link.target, link.kind); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.SaveAs("links.xlsx"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runReverse([]string{"-s", "links.xlsx", "--split-sheets"}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("links", "001_Sheet1.md")
+	md, err := os.ReadFile(path)
+	if err != nil || string(md) != "画面一覧へ\n\n別シート\n\n[資料](../docs/file.pdf)\n\n[仕様](https://example.com/spec)\n" {
+		t.Errorf("unexpected links: %q, %v", md, err)
+	}
+	if err := runForward([]string{"-s", path, "-d", "rebuilt.xlsx"}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := excelize.OpenFile("rebuilt.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	if ok, _, err := out.GetCellHyperLink("Sheet1", "A1"); err != nil || ok {
+		t.Errorf("unexpected link at A1: %v, %v", ok, err)
+	}
+	cells, err := out.GetHyperLinkCells("Sheet1", "External")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var targets []string
+	for _, cell := range cells {
+		_, target, err := out.GetCellHyperLink("Sheet1", cell)
+		if err != nil {
+			t.Fatal(err)
+		}
+		targets = append(targets, target)
+	}
+	slices.Sort(targets)
+	if !slices.Equal(targets, []string{"../docs/file.pdf", "https://example.com/spec"}) {
+		t.Errorf("rebuilt external links = %v", targets)
+	}
+
 }

@@ -120,9 +120,9 @@ Convert an Excel workbook to Markdown and extract embedded images. Multi-column 
 md2xls reverse -s sample/output/demo.xlsx -d sample/output/demo.md --image-dir sample/output/images
 ```
 
-With the default settings, reverse writes all sheets to one file in workbook order, adding sheet headings for multi-sheet output. Use `--sheet NAME` to select one sheet or `--all-sheets` to override a configured `sheet_name`. Output defaults to the input path with a `.md` extension. Images default to `./images` in the working directory and are linked relative to the Markdown file. Use `--no-strip-heading-number` to keep heading numbers.
+With the default settings, reverse writes all worksheets to one file in workbook order, adding sheet headings for multi-sheet output. Use `--sheet NAME` to select one sheet or `--all-sheets` to override a configured `sheet_name`. Output defaults to the input path with a `.md` extension. Chart sheets are skipped. Images default to `./images` in the working directory and are linked relative to the Markdown file. If an image filename already exists, identical content reuses it and different content receives a suffix such as `_2`. Use `--no-strip-heading-number` to keep heading numbers.
 
-Use `--split-sheets` to write one Markdown file per selected sheet. In this mode `-d` (or `reverse.dst`) is the output directory. Its default is the input path without the extension. Files are named `001_SheetName.md`, using the sheet’s position in the workbook. Images are grouped by the same number under the image directory.
+Use `--split-sheets` to write one Markdown file per selected sheet. In this mode `-d` (or `reverse.dst`) is the output directory. Its default is the input path without the extension. Files are named `001_SheetName.md`, using the sheet’s position in the workbook. Images are grouped by the same number under the image directory. When rebuilding from multiple files, the filenames become sheet names, including the number prefix and any underscores substituted for invalid filename characters. For example, `001_Cover.md` becomes `001_Cover`.
 
 ```sh
 md2xls reverse --split-sheets --all-sheets -s design.xlsx -d output/design
@@ -130,7 +130,7 @@ md2xls reverse --split-sheets --all-sheets -s design.xlsx -d output/design
 
 Set `reverse.split_sheets: true` in YAML to enable this by default. Use `--split-sheets=false` to override it.
 
-The conversion uses the cell styles and values stored in Excel. Code block language tags and HTML comments are lost during Excel export. Each cell hyperlink applies to the full cell text.
+The conversion uses the cell styles and values stored in Excel. Code block language tags and HTML comments are lost during Excel export. Each external hyperlink applies to the full cell text. Links to locations in the same workbook are exported as display text.
 
 ## Configuration
 
@@ -390,7 +390,7 @@ The following Markdown features are not currently supported:
 - Setext-style headings (`Heading\n=======`; use ATX `#` syntax)
 - Reference links (`[text][id]`) and footnotes (`[^1]`)
 - Backslash escapes (`\*not italic\*`)
-- Inline HTML tags (`<strong>`, `<br>`, `<a>`; only `<img>` is supported)
+- Inline HTML tags such as `<strong>` and `<a>`. The parser supports `<img>` and table-cell line breaks written as `<br>`.
 
 ## Development
 
