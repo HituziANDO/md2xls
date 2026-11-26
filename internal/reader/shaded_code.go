@@ -56,7 +56,7 @@ func solidColor(s *parsedStyle) string {
 	return ""
 }
 
-func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string, merges map[string]string, styles map[int]*parsedStyle, blocks map[int]rowBlock) error {
+func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string, merges map[string]string, styles map[int]*parsedStyle, blocks map[int]rowBlock, useGrid bool) error {
 	// Cols includes explicit style-only cells. GetRows omits them, so using
 	// the longest value row would collapse distinct widths of shaded regions.
 	columns, err := f.Cols(sheet)
@@ -75,25 +75,22 @@ func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string,
 
 	var band shadedBand
 	var lines []string
-	inTable := false
+	runEnd := 0
 	start, anchor := 0, 0
 	flush := func() {
 		if len(lines) == 0 {
 			return
 		}
-		if !inTable {
-			// Only trim empty worksheet rows, preserving newlines inside cells.
-			for len(lines) > 0 && lines[len(lines)-1] == "" {
-				lines = lines[:len(lines)-1]
-			}
-			codeLines := strings.Split(strings.Join(lines, "\n"), "\n")
-			if r.isCodeRegion(band.color, codeLines) {
-				code := &parser.Code{Line: start, Codes: codeLines}
-				blocks[start] = rowBlock{component: code, height: len(lines)}
-			}
+		// Only trim empty worksheet rows, preserving newlines inside cells.
+		for len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+		codeLines := strings.Split(strings.Join(lines, "\n"), "\n")
+		if r.isCodeRegion(band.color, codeLines) {
+			code := &parser.Code{Line: start, Codes: codeLines}
+			blocks[start] = rowBlock{component: code, height: len(lines)}
 		}
 		lines = nil
-		inTable = false
 	}
 
 	for i := 0; i < len(rows); i++ {
@@ -104,18 +101,26 @@ func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string,
 			continue
 		}
 
+		if i >= runEnd && len(rows[i]) > 0 {
+			runEnd = i + 1
+			if useGrid {
+				runEnd = i + gridRunLength(rows[i:], row, blocks)
+			}
+			if hasMultiValueRow(rows[i:runEnd]) {
+				flush()
+				i = runEnd - 1
+				continue
+			}
+		}
+
 		col := 0
-		multipleValues := false
 		value := ""
 		for j, v := range rows[i] {
 			if v == "" {
 				continue
 			}
-			if col != 0 {
-				multipleValues = true
-				break
-			}
 			col, value = j+1, v
+			break
 		}
 		if col == 0 && len(lines) > 0 {
 			col = anchor
@@ -128,10 +133,7 @@ func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string,
 		if err != nil {
 			return err
 		}
-		// A table can shade only its first column. Other values in the row
-		// identify the table even when those cells have no fill.
-		if next != band || (inTable && value == "") ||
-			(multipleValues && len(lines) > 0 && lines[len(lines)-1] == "") {
+		if next != band {
 			flush()
 		}
 		if next.color == "" || (len(lines) == 0 && value == "") {
@@ -140,12 +142,28 @@ func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string,
 		if len(lines) == 0 {
 			start = row
 		}
-		inTable = inTable || multipleValues
 		band, anchor = next, col
 		lines = append(lines, value)
 	}
 	flush()
 	return nil
+}
+
+// A multi-value row identifies a table even when only an interior column is
+// shaded and its neighboring rows have values only in that column.
+func hasMultiValueRow(rows [][]string) bool {
+	for _, row := range rows {
+		found := false
+		for _, value := range row {
+			if value != "" {
+				if found {
+					return true
+				}
+				found = true
+			}
+		}
+	}
+	return false
 }
 
 // A horizontally merged cell may have fill only on its anchor. For unmerged

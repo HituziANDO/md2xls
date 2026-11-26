@@ -130,7 +130,7 @@ md2xls reverse --split-sheets --all-sheets -s design.xlsx -d output/design
 
 Set `reverse.split_sheets: true` in YAML to enable this by default. Use `--split-sheets=false` to override it.
 
-A run of cells with the same solid background and column span becomes a fenced code block when it contains a recognizable command, configuration assignment, or terminal output. Internal blank rows, spacing, and line breaks are preserved. Multi-column tables and boxed single-column lists keep their table formatting.
+A run of cells with the same solid background and column span becomes a fenced code block when it contains a recognizable command, configuration assignment, or terminal output. Internal blank rows, spacing, and line breaks are preserved. In a borderless grid, a row with multiple values marks the surrounding nonblank rows as a table. Leave a blank row between the table and a separate transcript. Boxed single-column lists also keep their table formatting.
 
 To extend detection for a workbook, add rules to `.m2x.yml`. A shaded region becomes a code block if any trimmed line matches a Go regular expression in `line_patterns`, or if its solid fill matches a color in `fill_colors`. Use six-digit non-white RGB values. Both lists are optional and supplement the built-in rules.
 

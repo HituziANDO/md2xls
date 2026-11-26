@@ -169,14 +169,15 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 	// Style cache: style ID -> parsed style.
 	styleCache := make(map[int]*parsedStyle)
 
-	rowBlocks, err := singleColumnTables(f, sheet, rows, mergeMap, styleCache, !useGrid && !outsideColumnA)
+	useGrid = useGrid || outsideColumnA
+	rowBlocks, err := singleColumnTables(f, sheet, rows, mergeMap, styleCache, !useGrid)
 	if err != nil {
 		return nil, err
 	}
-	if err := r.findShadedCode(f, sheet, rows, mergeMap, styleCache, rowBlocks); err != nil {
+	if err := r.findShadedCode(f, sheet, rows, mergeMap, styleCache, rowBlocks, useGrid); err != nil {
 		return nil, err
 	}
-	if useGrid || outsideColumnA {
+	if useGrid {
 		for _, cell := range pictures {
 			if !pictureCells[cell] {
 				continue

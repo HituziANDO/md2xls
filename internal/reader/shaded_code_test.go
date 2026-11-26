@@ -29,7 +29,7 @@ func TestWholeRowFillKeepsSheetNarrow(t *testing.T) {
 	}
 	blocks := make(map[int]rowBlock)
 	r := Reader{cfg: config.DefaultConfig()}
-	if err := r.findShadedCode(f, sheet, rows, nil, make(map[int]*parsedStyle), blocks); err != nil {
+	if err := r.findShadedCode(f, sheet, rows, nil, make(map[int]*parsedStyle), blocks, false); err != nil {
 		t.Fatal(err)
 	}
 	if blocks[1].height != 2 {

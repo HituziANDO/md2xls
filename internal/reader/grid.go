@@ -41,6 +41,16 @@ type rowBlock struct {
 	height    int
 }
 
+// Non-empty rows between blank rows or previously identified blocks belong
+// to the same grid region.
+func gridRunLength(rows [][]string, firstRow int, blocks map[int]rowBlock) int {
+	end := 0
+	for end < len(rows) && len(rows[end]) > 0 && blocks[firstRow+end].height == 0 {
+		end++
+	}
+	return end
+}
+
 // Blank rows separate tables. Keep each occupied column at the same position
 // throughout a table, including columns whose first value occurs late in it.
 func gridBlocks(f *excelize.File, sheet string, rows [][]string, images []parser.Image, rowBlocks map[int]rowBlock) ([]parser.Component, error) {
@@ -66,17 +76,16 @@ func gridBlocks(f *excelize.File, sheet string, rows [][]string, images []parser
 			rows = rows[1:]
 			continue
 		}
-		end := 0
+		end := gridRunLength(rows, rowNumber, rowBlocks)
 		var columns []int
 		used := map[int]bool{}
-		for end < len(rows) && len(rows[end]) > 0 && rowBlocks[rowNumber+end].height == 0 {
-			for j, value := range rows[end] {
+		for _, row := range rows[:end] {
+			for j, value := range row {
 				if value != "" && !used[j] {
 					columns = append(columns, j)
 					used[j] = true
 				}
 			}
-			end++
 		}
 		slices.Sort(columns)
 		var data [][]string

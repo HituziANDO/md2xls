@@ -357,12 +357,13 @@ func TestReverseCellBold(t *testing.T) {
 func TestReverseShadedCode(t *testing.T) {
 	const output = "  key | value  \n\tindented\n```\n"
 	for _, tc := range []struct {
-		name, left, tableRight string
-		merged                 bool
+		name, left, tableFill string
+		merged                bool
 	}{
 		{"merged", "A", "", true},
-		{"unmerged grid", "C", "D", false},
-		{"grid with only the first table column shaded", "C", "C", false},
+		{"unmerged grid", "C", "C14:D18", false},
+		{"grid with only the first table column shaded", "C", "C14:C18", false},
+		{"grid with only the value column shaded", "C", "D14:D18", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := excelize.NewFile()
@@ -410,11 +411,12 @@ func TestReverseShadedCode(t *testing.T) {
 				check(f.SetCellStr("Sheet1", "C14", "Command"))
 				check(f.SetCellStr("Sheet1", "D14", "Description"))
 				check(f.SetCellStr("Sheet1", "C15", "cd"))
-				check(f.SetCellStr("Sheet1", "D16", "ls"))
+				check(f.SetCellStr("Sheet1", "D16", "HOST=0.0.0.0"))
 				check(f.SetCellStr("Sheet1", "C17", "pwd"))
 				check(f.SetCellStr("Sheet1", "D17", "Current directory"))
 				check(f.SetCellStr("Sheet1", "C18", "ls"))
-				check(f.SetCellStyle("Sheet1", "C14", tc.tableRight+"18", gray))
+				first, last, _ := strings.Cut(tc.tableFill, ":")
+				check(f.SetCellStyle("Sheet1", first, last, gray))
 			}
 			dir := t.TempDir()
 			src, dst := filepath.Join(dir, "shading.xlsx"), filepath.Join(dir, "shading.md")
@@ -425,7 +427,7 @@ func TestReverseShadedCode(t *testing.T) {
 			want := "Before\n\n````\n### Run\nsudo example\n\n" + output +
 				"\n````\n\nShorter band\n\n```\nMODE=enabled\n```\n\nAfter\n\necho unshaded\n"
 			if !tc.merged {
-				want += "\n| Command | Description |\n| --- | --- |\n| cd |  |\n|  | ls |\n| pwd | Current directory |\n| ls |  |\n"
+				want += "\n| Command | Description |\n| --- | --- |\n| cd |  |\n|  | HOST=0.0.0.0 |\n| pwd | Current directory |\n| ls |  |\n"
 			}
 			if string(md) != want {
 				t.Fatalf("got %q, want %q", md, want)
