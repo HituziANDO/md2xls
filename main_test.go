@@ -438,6 +438,107 @@ func TestReverseShadedCode(t *testing.T) {
 	}
 }
 
+func TestReverseCustomCodeBlockRules(t *testing.T) {
+	t.Chdir(t.TempDir())
+	f := excelize.NewFile()
+	defer f.Close()
+	for _, cell := range []struct{ ref, text, color string }{
+		{"A1", "Output", "DDDDDD"},
+		{"A2", "  mytool status\n  done", "DDDDDD"},
+		{"A4", "Color match only", "E2F0D9"},
+		{"A6", "less example", "DDDDDD"},
+		{"A8", "mytool unshaded", ""},
+		{"A10", "Other text", "DDDDDD"},
+		{"A12", "mytool", "E2F0D9"}, {"B12", "Description", "E2F0D9"},
+		{"A13", "one", "E2F0D9"}, {"B13", "two", "E2F0D9"},
+	} {
+		if err := f.SetCellStr("Sheet1", cell.ref, cell.text); err != nil {
+			t.Fatal(err)
+		}
+		if cell.color != "" {
+			style, err := f.NewStyle(&excelize.Style{Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{cell.color}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.SetCellStyle("Sheet1", cell.ref, cell.ref, style); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := f.SaveAs("book.xlsx"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "reverse:\n  code_blocks:\n    line_patterns: ['^other$', '^mytool(\\s|$)']\n    fill_colors: ['#e2f0d9']\n"
+	if err := os.WriteFile(".m2x.yml", []byte(cfg), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runReverse([]string{"-s", "book.xlsx", "-d", "book.md"}); err != nil {
+		t.Fatal(err)
+	}
+	md, err := os.ReadFile("book.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "```\nOutput\n  mytool status\n  done\n```\n\n```\nColor match only\n```\n\n```\nless example\n```\n\n" +
+		"mytool unshaded\n\nOther text\n\n| mytool | Description |\n| --- | --- |\n| one | two |\n"
+	if string(md) != want {
+		t.Fatalf("got %q, want %q", md, want)
+	}
+}
+
+func TestReverseShadedServiceStatusAndCron(t *testing.T) {
+	f := excelize.NewFile()
+	defer f.Close()
+	style, err := f.NewStyle(&excelize.Style{Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"D9D9D9"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups := [][]string{
+		{"● example.service - Example Service", "   Loaded: loaded", "   Active: active (running)", "       └─12 example"},
+		{"less /var/log/example"},
+		{"less /srv/example/log/cron.log"},
+		{"# Disable cleanup", "#0 1 * * * root /srv/example/cleanup.sh"},
+		{"# Disable cleanup", "# 0 1 * * * root /srv/example/cleanup.sh"},
+	}
+	row := 1
+	var want strings.Builder
+	for _, group := range groups {
+		for _, line := range group {
+			cell := fmt.Sprintf("A%d", row)
+			if err := f.MergeCell("Sheet1", cell, fmt.Sprintf("J%d", row)); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.SetCellStr("Sheet1", cell, line); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.SetCellStyle("Sheet1", cell, cell, style); err != nil {
+				t.Fatal(err)
+			}
+			row++
+		}
+		if want.Len() > 0 {
+			want.WriteByte('\n')
+		}
+		fmt.Fprintf(&want, "```\n%s\n```\n", strings.Join(group, "\n"))
+		row++
+	}
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "status.xlsx"), filepath.Join(dir, "status.md")
+	if err := f.SaveAs(src); err != nil {
+		t.Fatal(err)
+	}
+	if err := runReverse([]string{"-s", src, "-d", dst}); err != nil {
+		t.Fatal(err)
+	}
+	md, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(md) != want.String() {
+		t.Errorf("unexpected Markdown:\n%s", md)
+	}
+}
+
 func TestReverseSingleColumnTables(t *testing.T) {
 	dir := t.TempDir()
 	f := excelize.NewFile()

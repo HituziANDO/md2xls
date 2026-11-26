@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -190,6 +191,24 @@ func TestLoad_InvalidYAML(t *testing.T) {
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid YAML, got nil")
+	}
+}
+
+func TestLoadInvalidCodeBlockRules(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yml")
+	for _, tc := range []struct{ key, value string }{
+		{"line_patterns", "'['"},
+		{"line_patterns", "''"},
+		{"fill_colors", "'#XX1234'"},
+		{"fill_colors", "'#FFFFFF'"},
+	} {
+		cfg := "reverse:\n  code_blocks:\n    " + tc.key + ": [" + tc.value + "]\n"
+		if err := os.WriteFile(path, []byte(cfg), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "reverse.code_blocks."+tc.key+"[0]") {
+			t.Errorf("%s: got %v, want error identifying invalid rule", cfg, err)
+		}
 	}
 }
 

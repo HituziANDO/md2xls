@@ -1,8 +1,11 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -37,11 +40,13 @@ type PrintOptions struct {
 
 // ReverseConfig holds settings for Excel → Markdown reverse conversion.
 type ReverseConfig struct {
-	SplitSheets        bool   `yaml:"-"`
-	Src                string `yaml:"-"`
-	Dst                string `yaml:"-"`
-	ImageDir           string `yaml:"-"`
-	StripHeadingNumber bool   `yaml:"-"`
+	CodeBlockLinePatterns []*regexp.Regexp `yaml:"-"`
+	CodeBlockFillColors   []string         `yaml:"-"`
+	SplitSheets           bool             `yaml:"-"`
+	Src                   string           `yaml:"-"`
+	Dst                   string           `yaml:"-"`
+	ImageDir              string           `yaml:"-"`
+	StripHeadingNumber    bool             `yaml:"-"`
 }
 
 type Config struct {
@@ -119,6 +124,10 @@ type rawConfig struct {
 		H6 *float64 `yaml:"h6"`
 	} `yaml:"heading_font_size"`
 	Reverse *struct {
+		CodeBlocks struct {
+			LinePatterns []string `yaml:"line_patterns"`
+			FillColors   []string `yaml:"fill_colors"`
+		} `yaml:"code_blocks"`
 		SplitSheets        bool    `yaml:"split_sheets"`
 		Src                *string `yaml:"src"`
 		Dst                *string `yaml:"dst"`
@@ -231,6 +240,23 @@ func Load(path string) (Config, error) {
 		}
 	}
 	if raw.Reverse != nil {
+		for i, pattern := range raw.Reverse.CodeBlocks.LinePatterns {
+			if strings.TrimSpace(pattern) == "" {
+				return cfg, fmt.Errorf("reverse.code_blocks.line_patterns[%d] must contain a regular expression", i)
+			}
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				return cfg, fmt.Errorf("reverse.code_blocks.line_patterns[%d]: %w", i, err)
+			}
+			cfg.Reverse.CodeBlockLinePatterns = append(cfg.Reverse.CodeBlockLinePatterns, re)
+		}
+		for i, color := range raw.Reverse.CodeBlocks.FillColors {
+			rgb := strings.ToUpper(strings.TrimPrefix(color, "#"))
+			if _, err := hex.DecodeString(rgb); err != nil || len(rgb) != 6 || rgb == "FFFFFF" {
+				return cfg, fmt.Errorf("reverse.code_blocks.fill_colors[%d] must be a non-white six-digit RGB color", i)
+			}
+			cfg.Reverse.CodeBlockFillColors = append(cfg.Reverse.CodeBlockFillColors, rgb)
+		}
 		cfg.Reverse.SplitSheets = raw.Reverse.SplitSheets
 		if raw.Reverse.Src != nil {
 			cfg.Reverse.Src = *raw.Reverse.Src

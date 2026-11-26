@@ -2,6 +2,7 @@ package reader
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/HituziANDO/md2xls/internal/config"
@@ -9,17 +10,36 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-// A fill groups the transcript; at least one line must also look like code.
+// Built-in line patterns for recognizing transcripts in shaded regions.
 // Comments and pipe characters alone are common in headings and ordinary tables.
 var transcriptLine = regexp.MustCompile("^(?:" + strings.Join([]string{
 	`#!\s*/\S+|\$\s+\S+`, // interpreter or shell prompt
-	`(?:sudo|su|psql|ssh|scp|rsync|systemctl|journalctl|grep|cat|tail|head|ls|cd|cp|mv|rm|mkdir|chmod|chown|echo|export|source|bash|sh|tar|find|curl|git|docker|kubectl)(?:\s+\S+|$)`,
+	`(?:sudo|su|psql|ssh|scp|rsync|systemctl|journalctl|grep|cat|less|tail|head|ls|cd|cp|mv|rm|mkdir|chmod|chown|echo|export|source|bash|sh|tar|find|curl|git|docker|kubectl)(?:\s+\S+|$)`,
 	`(?:\./|/)[\w./-]+\s+\S+`,    // executable path and arguments
 	`[A-Za-z_][\w.-]*\s*=\s*\S+`, // configuration assignment
 	`(?i:SELECT\s+.+\s+FROM|INSERT\s+INTO|CREATE\s+TABLE)\b`,
-	`-\[ RECORD [0-9]+ \]-`,   // expanded PostgreSQL output
-	`(?:[0-9*/,-]+\s+){5}\S+`, // crontab entry
+	`-\[ RECORD [0-9]+ \]-`,            // expanded PostgreSQL output
+	`●\s+\S+\.service\s+-\s+\S`,        // systemctl status header
+	`(?:#\s*)?(?:[0-9*/,-]+\s+){5}\S+`, // active or commented crontab entry
 }, "|") + ")")
+
+func (r *Reader) isCodeRegion(color string, lines []string) bool {
+	if slices.Contains(r.cfg.Reverse.CodeBlockFillColors, color) {
+		return true
+	}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if transcriptLine.MatchString(line) {
+			return true
+		}
+		for _, pattern := range r.cfg.Reverse.CodeBlockLinePatterns {
+			if pattern.MatchString(line) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 type shadedBand struct {
 	left, right int
@@ -45,12 +65,9 @@ func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string,
 			return
 		}
 		codeLines := strings.Split(strings.Join(lines, "\n"), "\n")
-		for _, line := range codeLines {
-			if transcriptLine.MatchString(strings.TrimSpace(line)) {
-				code := &parser.Code{Line: start, Codes: codeLines}
-				blocks[start] = rowBlock{component: code, height: len(lines)}
-				break
-			}
+		if r.isCodeRegion(band.color, codeLines) {
+			code := &parser.Code{Line: start, Codes: codeLines}
+			blocks[start] = rowBlock{component: code, height: len(lines)}
 		}
 		lines = nil
 	}
