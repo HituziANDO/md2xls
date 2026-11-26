@@ -22,3 +22,5 @@ md2xls
 .claude/settings.local.json
 .codex
 README.xlsx
+AGENTS.local.md
+CLAUDE.local.md
