@@ -385,6 +385,9 @@ reverse:
   # split_sheets: false
   # image_dir: ./images
   # strip_heading_number: true
+  # code_blocks:
+  #   line_patterns: ['^mytool(\s|$)']  # Additional Go regexes for lines in a shaded region.
+  #   fill_colors: ['#E2F0D9']         # Include regions of these colors regardless of text.
 `
 
 	if err := os.WriteFile(defaultConfigFile, []byte(content), 0o644); err != nil {

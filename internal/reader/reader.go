@@ -169,11 +169,15 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 	// Style cache: style ID -> parsed style.
 	styleCache := make(map[int]*parsedStyle)
 
-	singleTables, err := singleColumnTables(f, sheet, rows, mergeMap, styleCache, !useGrid && !outsideColumnA)
+	useGrid = useGrid || outsideColumnA
+	rowBlocks, err := singleColumnTables(f, sheet, rows, mergeMap, styleCache, !useGrid)
 	if err != nil {
 		return nil, err
 	}
-	if useGrid || outsideColumnA {
+	if err := r.findShadedCode(f, sheet, rows, mergeMap, styleCache, rowBlocks, useGrid); err != nil {
+		return nil, err
+	}
+	if useGrid {
 		for _, cell := range pictures {
 			if !pictureCells[cell] {
 				continue
@@ -185,7 +189,7 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 			}
 			layouts = append(layouts, images...)
 		}
-		return gridBlocks(f, sheet, rows, layouts, singleTables)
+		return gridBlocks(f, sheet, rows, layouts, rowBlocks)
 	}
 	// Empty styled rows (for example a horizontal rule) can follow the final value.
 	maxRow, err := countRows(f, sheet)
@@ -294,8 +298,9 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 		}
 
 		detected := Detect(info, r.cfg)
-		if singleTables[row] != nil {
-			detected = parser.TypeTable
+		block, hasBlock := rowBlocks[row]
+		if hasBlock {
+			detected = block.component.Type()
 		}
 
 		if detected != parser.TypePlainText || value == "" || hyperlink != "" {
@@ -304,6 +309,22 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 		if detected != parser.TypeList && len(list.Items) > 0 {
 			components = append(components, list)
 			list = parser.List{}
+		}
+		if hasBlock {
+			components = append(components, block.component)
+			end := row + block.height
+			for ; row < end; row++ {
+				cell, _ := excelize.JoinCellName("A", row)
+				if pictureCells[cell] {
+					images, err := r.cellImages(f, sheet, cell, imageNumber)
+					if err != nil {
+						return nil, err
+					}
+					layouts = append(layouts, images...)
+				}
+			}
+			slices.SortStableFunc(layouts, func(a, b parser.Image) int { return cmp.Compare(a.Line, b.Line) })
+			continue
 		}
 		switch detected {
 		case parser.TypeImage:
@@ -331,22 +352,6 @@ func (r *Reader) readSheet(f *excelize.File, sheet string, imageNumber *int, lay
 			row += advance
 
 		case parser.TypeTable:
-			if table := singleTables[row]; table != nil {
-				components = append(components, table)
-				end := row + 1 + len(table.Data)
-				for ; row < end; row++ {
-					cell, _ := excelize.JoinCellName("A", row)
-					if pictureCells[cell] {
-						images, err := r.cellImages(f, sheet, cell, imageNumber)
-						if err != nil {
-							return nil, err
-						}
-						layouts = append(layouts, images...)
-					}
-				}
-				slices.SortStableFunc(layouts, func(a, b parser.Image) int { return cmp.Compare(a.Line, b.Line) })
-				break
-			}
 			comp, advance, err := r.readTable(f, sheet, row, maxRow, styleCache, mergeMap)
 			if err != nil {
 				return nil, fmt.Errorf("read table at row %d: %w", row, err)

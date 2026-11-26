@@ -21,7 +21,7 @@ var (
 	htmlImgRegex = regexp.MustCompile(`<img[^>]*?src\s*=\s*["']([^"']+)["'][^>]*>`)
 	// Markdown image: ![alt](url)
 	mdImgRegex = regexp.MustCompile(`^!\[([^\]]*)\]\((\S+?)(?:\s+"[^"]*")?\)\s*$`)
-	codeRegex  = regexp.MustCompile(`^\s*` + "```" + `(.*)$`)
+	codeRegex  = regexp.MustCompile("^\\s*(`{3,})(.*)$")
 	hrRegex    = regexp.MustCompile(`^\s*(?:---+|\*\*\*+|___+)\s*$`)
 	// Unordered list: - item, * item, + item (with optional leading spaces)
 	ulRegex = regexp.MustCompile(`^(\s*)([-*+])\s+(.+)`)
@@ -115,6 +115,7 @@ func Parse(text string) []Component {
 	var table *Table
 	tableRow := 0
 	var code *Code
+	var fenceLength int
 	var list *List
 	var blockquote *Blockquote
 	inComment := false
@@ -138,7 +139,8 @@ func Parse(text string) []Component {
 
 		// Inside code block: collect lines until closing fence
 		if code != nil {
-			if codeRegex.MatchString(line) {
+			trimmed := strings.TrimSpace(line)
+			if len(trimmed) >= fenceLength && strings.Trim(trimmed, "`") == "" {
 				code = nil
 			} else {
 				code.Codes = append(code.Codes, line)
@@ -397,11 +399,11 @@ func Parse(text string) []Component {
 				Section: section,
 				Term:    term,
 			})
-		} else if codeRegex.MatchString(line) {
+		} else if m := codeRegex.FindStringSubmatch(line); m != nil {
 			tableRow = 0
 			table = nil
-			m := codeRegex.FindStringSubmatch(line)
-			lang := strings.TrimSpace(m[1])
+			fenceLength = len(m[1])
+			lang := strings.TrimSpace(m[2])
 			code = &Code{
 				Lang:    lang,
 				Line:    lineNum,

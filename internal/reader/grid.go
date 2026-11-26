@@ -35,9 +35,25 @@ func hasGridData(f *excelize.File, sheet string, rows [][]string) (bool, error) 
 	return false, nil
 }
 
+// rowBlock occupies a known range of worksheet rows, including internal blank rows.
+type rowBlock struct {
+	component parser.Component
+	height    int
+}
+
+// Non-empty rows between blank rows or previously identified blocks belong
+// to the same grid region.
+func gridRunLength(rows [][]string, firstRow int, blocks map[int]rowBlock) int {
+	end := 0
+	for end < len(rows) && len(rows[end]) > 0 && blocks[firstRow+end].height == 0 {
+		end++
+	}
+	return end
+}
+
 // Blank rows separate tables. Keep each occupied column at the same position
 // throughout a table, including columns whose first value occurs late in it.
-func gridBlocks(f *excelize.File, sheet string, rows [][]string, images []parser.Image, singleTables map[int]*parser.Table) ([]parser.Component, error) {
+func gridBlocks(f *excelize.File, sheet string, rows [][]string, images []parser.Image, rowBlocks map[int]rowBlock) ([]parser.Component, error) {
 	styles := make(map[int]*parsedStyle)
 	// A table remains intact if a floating picture is anchored inside its rows.
 	slices.SortStableFunc(images, func(a, b parser.Image) int { return cmp.Compare(a.Line, b.Line) })
@@ -49,11 +65,10 @@ func gridBlocks(f *excelize.File, sheet string, rows [][]string, images []parser
 			images = images[1:]
 			continue
 		}
-		if table := singleTables[rowNumber]; table != nil {
-			blocks = append(blocks, table)
-			n := 1 + len(table.Data)
-			rowNumber += n
-			rows = rows[n:]
+		if block, ok := rowBlocks[rowNumber]; ok {
+			blocks = append(blocks, block.component)
+			rowNumber += block.height
+			rows = rows[block.height:]
 			continue
 		}
 		if len(rows[0]) == 0 {
@@ -61,17 +76,16 @@ func gridBlocks(f *excelize.File, sheet string, rows [][]string, images []parser
 			rows = rows[1:]
 			continue
 		}
-		end := 0
+		end := gridRunLength(rows, rowNumber, rowBlocks)
 		var columns []int
 		used := map[int]bool{}
-		for end < len(rows) && len(rows[end]) > 0 && singleTables[rowNumber+end] == nil {
-			for j, value := range rows[end] {
+		for _, row := range rows[:end] {
+			for j, value := range row {
 				if value != "" && !used[j] {
 					columns = append(columns, j)
 					used[j] = true
 				}
 			}
-			end++
 		}
 		slices.Sort(columns)
 		var data [][]string
@@ -119,8 +133,8 @@ func gridBlocks(f *excelize.File, sheet string, rows [][]string, images []parser
 // A run of boxed cells with the same horizontal extent is a one-column table.
 // Only inspect blocks that would otherwise be plain text. Sparse data rows in
 // a wider table must stay with their original header.
-func singleColumnTables(f *excelize.File, sheet string, rows [][]string, merges map[string]string, styles map[int]*parsedStyle, native bool) (map[int]*parser.Table, error) {
-	tables := make(map[int]*parser.Table)
+func singleColumnTables(f *excelize.File, sheet string, rows [][]string, merges map[string]string, styles map[int]*parsedStyle, native bool) (map[int]rowBlock, error) {
+	tables := make(map[int]rowBlock)
 	for start := 0; start < len(rows); {
 		end := start
 		for end < len(rows) && len(rows[end]) > 0 {
@@ -161,7 +175,7 @@ func singleColumnTables(f *excelize.File, sheet string, rows [][]string, merges 
 			}
 			table.Data = append(table.Data, []string{value})
 			table.DataRichText = append(table.DataRichText, rich)
-			tables[table.Line] = table
+			tables[table.Line] = rowBlock{component: table, height: 1 + len(table.Data)}
 		}
 		start = end + 1
 	}
