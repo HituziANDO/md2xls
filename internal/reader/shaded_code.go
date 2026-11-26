@@ -104,14 +104,15 @@ func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string,
 			continue
 		}
 
-		col, secondCol := 0, 0
+		col := 0
+		multipleValues := false
 		value := ""
 		for j, v := range rows[i] {
 			if v == "" {
 				continue
 			}
 			if col != 0 {
-				secondCol = j + 1
+				multipleValues = true
 				break
 			}
 			col, value = j+1, v
@@ -127,14 +128,10 @@ func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string,
 		if err != nil {
 			return err
 		}
-		// Multiple values inside the same band identify a table, including
-		// adjacent sparse rows. Blank worksheet rows still separate tables.
-		if secondCol > next.right {
-			flush()
-			continue
-		}
+		// A table can shade only its first column. Other values in the row
+		// identify the table even when those cells have no fill.
 		if next != band || (inTable && value == "") ||
-			(secondCol > 0 && len(lines) > 0 && lines[len(lines)-1] == "") {
+			(multipleValues && len(lines) > 0 && lines[len(lines)-1] == "") {
 			flush()
 		}
 		if next.color == "" || (len(lines) == 0 && value == "") {
@@ -143,7 +140,7 @@ func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string,
 		if len(lines) == 0 {
 			start = row
 		}
-		inTable = inTable || secondCol > 0
+		inTable = inTable || multipleValues
 		band, anchor = next, col
 		lines = append(lines, value)
 	}

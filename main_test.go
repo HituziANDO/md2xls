@@ -357,11 +357,12 @@ func TestReverseCellBold(t *testing.T) {
 func TestReverseShadedCode(t *testing.T) {
 	const output = "  key | value  \n\tindented\n```\n"
 	for _, tc := range []struct {
-		name, left string
-		merged     bool
+		name, left, tableRight string
+		merged                 bool
 	}{
-		{"merged", "A", true},
-		{"unmerged grid", "C", false},
+		{"merged", "A", "", true},
+		{"unmerged grid", "C", "D", false},
+		{"grid with only the first table column shaded", "C", "C", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := excelize.NewFile()
@@ -413,7 +414,7 @@ func TestReverseShadedCode(t *testing.T) {
 				check(f.SetCellStr("Sheet1", "C17", "pwd"))
 				check(f.SetCellStr("Sheet1", "D17", "Current directory"))
 				check(f.SetCellStr("Sheet1", "C18", "ls"))
-				check(f.SetCellStyle("Sheet1", "C14", "D18", gray))
+				check(f.SetCellStyle("Sheet1", "C14", tc.tableRight+"18", gray))
 			}
 			dir := t.TempDir()
 			src, dst := filepath.Join(dir, "shading.xlsx"), filepath.Join(dir, "shading.md")
