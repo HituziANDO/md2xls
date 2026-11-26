@@ -57,19 +57,43 @@ func solidColor(s *parsedStyle) string {
 }
 
 func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string, merges map[string]string, styles map[int]*parsedStyle, blocks map[int]rowBlock) error {
+	// Cols includes explicit style-only cells. GetRows omits them, so using
+	// the longest value row would collapse distinct widths of shaded regions.
+	columns, err := f.Cols(sheet)
+	if err != nil {
+		return err
+	}
+	lastCol := 0
+	for columns.Next() {
+		lastCol++
+	}
+	for _, merged := range merges {
+		_, end, _ := strings.Cut(merged, ":")
+		col, _, _ := excelize.CellNameToCoordinates(end)
+		lastCol = max(lastCol, col)
+	}
+
 	var band shadedBand
 	var lines []string
+	inTable := false
 	start, anchor := 0, 0
 	flush := func() {
 		if len(lines) == 0 {
 			return
 		}
-		codeLines := strings.Split(strings.Join(lines, "\n"), "\n")
-		if r.isCodeRegion(band.color, codeLines) {
-			code := &parser.Code{Line: start, Codes: codeLines}
-			blocks[start] = rowBlock{component: code, height: len(lines)}
+		if !inTable {
+			// Only trim empty worksheet rows, preserving newlines inside cells.
+			for len(lines) > 0 && lines[len(lines)-1] == "" {
+				lines = lines[:len(lines)-1]
+			}
+			codeLines := strings.Split(strings.Join(lines, "\n"), "\n")
+			if r.isCodeRegion(band.color, codeLines) {
+				code := &parser.Code{Line: start, Codes: codeLines}
+				blocks[start] = rowBlock{component: code, height: len(lines)}
+			}
 		}
 		lines = nil
+		inTable = false
 	}
 
 	for i := 0; i < len(rows); i++ {
@@ -80,14 +104,14 @@ func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string,
 			continue
 		}
 
-		col := 0
+		col, secondCol := 0, 0
 		value := ""
 		for j, v := range rows[i] {
 			if v == "" {
 				continue
 			}
 			if col != 0 {
-				col = -1
+				secondCol = j + 1
 				break
 			}
 			col, value = j+1, v
@@ -99,11 +123,18 @@ func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string,
 			flush()
 			continue
 		}
-		next, err := codeBand(f, sheet, col, row, merges, styles, r.cfg)
+		next, err := codeBand(f, sheet, col, row, lastCol, merges, styles, r.cfg)
 		if err != nil {
 			return err
 		}
-		if next != band {
+		// Multiple values inside the same band identify a table, including
+		// adjacent sparse rows. Blank worksheet rows still separate tables.
+		if secondCol > next.right {
+			flush()
+			continue
+		}
+		if next != band || (inTable && value == "") ||
+			(secondCol > 0 && len(lines) > 0 && lines[len(lines)-1] == "") {
 			flush()
 		}
 		if next.color == "" || (len(lines) == 0 && value == "") {
@@ -112,6 +143,7 @@ func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string,
 		if len(lines) == 0 {
 			start = row
 		}
+		inTable = inTable || secondCol > 0
 		band, anchor = next, col
 		lines = append(lines, value)
 	}
@@ -121,7 +153,7 @@ func (r *Reader) findShadedCode(f *excelize.File, sheet string, rows [][]string,
 
 // A horizontally merged cell may have fill only on its anchor. For unmerged
 // cells, the extent of the solid fill determines where the band starts and ends.
-func codeBand(f *excelize.File, sheet string, col, row int, merges map[string]string, styles map[int]*parsedStyle, cfg config.Config) (shadedBand, error) {
+func codeBand(f *excelize.File, sheet string, col, row, lastCol int, merges map[string]string, styles map[int]*parsedStyle, cfg config.Config) (shadedBand, error) {
 	styleAt := func(c int) (*parsedStyle, error) {
 		cell, _ := excelize.CoordinatesToCellName(c, row)
 		id, err := f.GetCellStyle(sheet, cell)
@@ -170,7 +202,7 @@ func codeBand(f *excelize.File, sheet string, col, row int, merges map[string]st
 		}
 		band.left--
 	}
-	for band.right < excelize.MaxColumns {
+	for band.right < lastCol {
 		s, err := styleAt(band.right + 1)
 		if err != nil {
 			return shadedBand{}, err

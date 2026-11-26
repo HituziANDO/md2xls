@@ -383,10 +383,12 @@ func TestReverseShadedCode(t *testing.T) {
 				style       int
 			}{
 				{"Before", "H", 0},
+				{"", "H", gray},
 				{"### Run", "H", gray},
 				{"sudo example", "H", gray},
 				{"", "H", gray},
 				{output, "H", gray},
+				{"", "H", gray},
 				{"Shorter band", "G", gray},
 				{"MODE=enabled", "G", blue},
 				{"After", "G", gray},
@@ -404,11 +406,14 @@ func TestReverseShadedCode(t *testing.T) {
 			}
 
 			if !tc.merged {
-				check(f.SetCellStr("Sheet1", "C12", "Command"))
-				check(f.SetCellStr("Sheet1", "D12", "Description"))
-				check(f.SetCellStr("Sheet1", "C13", "ls"))
-				check(f.SetCellStr("Sheet1", "D13", "List files"))
-				check(f.SetCellStyle("Sheet1", "C12", "D13", gray))
+				check(f.SetCellStr("Sheet1", "C14", "Command"))
+				check(f.SetCellStr("Sheet1", "D14", "Description"))
+				check(f.SetCellStr("Sheet1", "C15", "cd"))
+				check(f.SetCellStr("Sheet1", "D16", "ls"))
+				check(f.SetCellStr("Sheet1", "C17", "pwd"))
+				check(f.SetCellStr("Sheet1", "D17", "Current directory"))
+				check(f.SetCellStr("Sheet1", "C18", "ls"))
+				check(f.SetCellStyle("Sheet1", "C14", "D18", gray))
 			}
 			dir := t.TempDir()
 			src, dst := filepath.Join(dir, "shading.xlsx"), filepath.Join(dir, "shading.md")
@@ -419,7 +424,7 @@ func TestReverseShadedCode(t *testing.T) {
 			want := "Before\n\n````\n### Run\nsudo example\n\n" + output +
 				"\n````\n\nShorter band\n\n```\nMODE=enabled\n```\n\nAfter\n\necho unshaded\n"
 			if !tc.merged {
-				want += "\n| Command | Description |\n| --- | --- |\n| ls | List files |\n"
+				want += "\n| Command | Description |\n| --- | --- |\n| cd |  |\n|  | ls |\n| pwd | Current directory |\n| ls |  |\n"
 			}
 			if string(md) != want {
 				t.Fatalf("got %q, want %q", md, want)
