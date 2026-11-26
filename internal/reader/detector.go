@@ -19,9 +19,9 @@ type CellInfo struct {
 	Border     []excelize.Border
 	Alignment  *excelize.Alignment
 	IsMerged   bool
-	MergeRange string  // e.g., "A1:H5"
+	MergeRange string // e.g., "A1:H5"
 	HasImage   bool
-	Hyperlink  string  // URL if present
+	Hyperlink  string // URL if present
 	RowHeight  float64
 }
 
@@ -43,19 +43,8 @@ func Detect(info CellInfo, cfg config.Config) parser.ComponentType {
 		return parser.TypeImage
 	}
 
-	// Priority 2: Code — merged A-H, fill #EEEEEE, code font
-	if info.IsMerged && isMergeAtoH(info.MergeRange) &&
-		hasFillColor(info.Fill, "#EEEEEE") &&
-		isCodeFont(info.Font, cfg) {
-		return parser.TypeCode
-	}
-
-	// Priority 3: Blockquote — merged A-H, fill #F5F5F5, italic, left border
-	if info.IsMerged && isMergeAtoH(info.MergeRange) &&
-		hasFillColor(info.Fill, "#F5F5F5") &&
-		info.Font != nil && info.Font.Italic &&
-		hasLeftBorder(info.Border) {
-		return parser.TypeBlockquote
+	if kind := mergedBlockType(info, cfg); kind != parser.TypePlainText {
+		return kind
 	}
 
 	// Priority 4: Table header — all borders, fill #DDDDDD
@@ -98,6 +87,26 @@ func Detect(info CellInfo, cfg config.Config) parser.ComponentType {
 	}
 
 	// Priority 14: default
+	return parser.TypePlainText
+}
+
+// mergedBlockType recognizes the formats written by the Markdown renderer.
+func mergedBlockType(info CellInfo, cfg config.Config) parser.ComponentType {
+	// Priority 2: Code — merged A-H, fill #EEEEEE, code font
+	if info.IsMerged && isMergeAtoH(info.MergeRange) &&
+		hasFillColor(info.Fill, "#EEEEEE") &&
+		isCodeFont(info.Font, cfg) {
+		return parser.TypeCode
+	}
+
+	// Priority 3: Blockquote — merged A-H, fill #F5F5F5, italic, left border
+	if info.IsMerged && isMergeAtoH(info.MergeRange) &&
+		hasFillColor(info.Fill, "#F5F5F5") &&
+		info.Font != nil && info.Font.Italic &&
+		hasLeftBorder(info.Border) {
+		return parser.TypeBlockquote
+	}
+
 	return parser.TypePlainText
 }
 

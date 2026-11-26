@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/HituziANDO/md2xls/internal/parser"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -353,6 +354,90 @@ func TestReverseCellBold(t *testing.T) {
 	}
 }
 
+func TestReverseShadedCode(t *testing.T) {
+	const output = "  key | value  \n\tindented\n```\n"
+	for _, tc := range []struct {
+		name, left string
+		merged     bool
+	}{
+		{"merged", "A", true},
+		{"unmerged grid", "C", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := excelize.NewFile()
+			defer f.Close()
+			check := func(err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			shading := func(color string) int {
+				id, err := f.NewStyle(&excelize.Style{Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{color}}})
+				check(err)
+				return id
+			}
+			gray, blue := shading("D9D9D9"), shading("CCEEFF")
+			for i, row := range []struct {
+				text, right string
+				style       int
+			}{
+				{"Before", "H", 0},
+				{"### Run", "H", gray},
+				{"sudo example", "H", gray},
+				{"", "H", gray},
+				{output, "H", gray},
+				{"Shorter band", "G", gray},
+				{"MODE=enabled", "G", blue},
+				{"After", "G", gray},
+				{"", "G", 0},
+				{"echo unshaded", "G", 0},
+			} {
+				first := fmt.Sprintf("%s%d", tc.left, i+1)
+				last := fmt.Sprintf("%s%d", row.right, i+1)
+				check(f.SetCellStr("Sheet1", first, row.text))
+				if tc.merged {
+					check(f.MergeCell("Sheet1", first, last))
+					last = first // Only the anchor has an explicit fill.
+				}
+				check(f.SetCellStyle("Sheet1", first, last, row.style))
+			}
+
+			if !tc.merged {
+				check(f.SetCellStr("Sheet1", "C12", "Command"))
+				check(f.SetCellStr("Sheet1", "D12", "Description"))
+				check(f.SetCellStr("Sheet1", "C13", "ls"))
+				check(f.SetCellStr("Sheet1", "D13", "List files"))
+				check(f.SetCellStyle("Sheet1", "C12", "D13", gray))
+			}
+			dir := t.TempDir()
+			src, dst := filepath.Join(dir, "shading.xlsx"), filepath.Join(dir, "shading.md")
+			check(f.SaveAs(src))
+			check(runReverse([]string{"-s", src, "-d", dst}))
+			md, err := os.ReadFile(dst)
+			check(err)
+			want := "Before\n\n````\n### Run\nsudo example\n\n" + output +
+				"\n````\n\nShorter band\n\n```\nMODE=enabled\n```\n\nAfter\n\necho unshaded\n"
+			if !tc.merged {
+				want += "\n| Command | Description |\n| --- | --- |\n| ls | List files |\n"
+			}
+			if string(md) != want {
+				t.Fatalf("got %q, want %q", md, want)
+			}
+			components := parser.Parse(string(md))
+			var codes []string
+			for _, component := range components {
+				if code, ok := component.(*parser.Code); ok {
+					codes = append(codes, strings.Join(code.Codes, "\n"))
+				}
+			}
+			if !slices.Equal(codes, []string{"### Run\nsudo example\n\n" + output, "MODE=enabled"}) {
+				t.Errorf("round-trip code contents: %q", codes)
+			}
+		})
+	}
+}
+
 func TestReverseSingleColumnTables(t *testing.T) {
 	dir := t.TempDir()
 	f := excelize.NewFile()
@@ -363,7 +448,7 @@ func TestReverseSingleColumnTables(t *testing.T) {
 		for _, side := range sides {
 			edges = append(edges, excelize.Border{Type: side, Style: 1, Color: "000000"})
 		}
-		id, err := f.NewStyle(&excelize.Style{Border: edges})
+		id, err := f.NewStyle(&excelize.Style{Border: edges, Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"D9D9D9"}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -381,7 +466,7 @@ func TestReverseSingleColumnTables(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		for i, value := range []string{"説明", "対象", "検索", "CSV", "次の段落", "項目", "値"} {
+		for i, value := range []string{"説明", "対象", "ls", "CSV", "次の段落", "項目", "値"} {
 			a, _ := excelize.JoinCellName("A", i+1)
 			b, _ := excelize.JoinCellName("B", i+1)
 			if err := f.SetCellValue(sheet, a, value); err != nil {
@@ -413,7 +498,7 @@ func TestReverseSingleColumnTables(t *testing.T) {
 	if err := runReverse([]string{"--all-sheets", "--split-sheets", "-s", src, "-d", dst}); err != nil {
 		t.Fatal(err)
 	}
-	want := "説明\n\n| 対象 |\n| --- |\n| 検索 |\n| CSV |\n\n次の段落\n\n| 項目 |\n| --- |\n| 値 |\n"
+	want := "説明\n\n| 対象 |\n| --- |\n| ls |\n| CSV |\n\n次の段落\n\n| 項目 |\n| --- |\n| 値 |\n"
 	for name, suffix := range map[string]string{"001_Sheet1.md": "", "002_Grid.md": "\n別の列\n"} {
 		got, err := os.ReadFile(filepath.Join(dst, name))
 		if err != nil || string(got) != want+suffix {

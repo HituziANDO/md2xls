@@ -130,6 +130,8 @@ md2xls reverse --split-sheets --all-sheets -s design.xlsx -d output/design
 
 Set `reverse.split_sheets: true` in YAML to enable this by default. Use `--split-sheets=false` to override it.
 
+A run of cells with the same solid background and column span becomes a fenced code block when it contains a recognizable command, configuration assignment, or terminal output. Internal blank rows, spacing, and line breaks are preserved. Multi-column tables and boxed single-column lists keep their table formatting.
+
 The conversion uses the cell styles and values stored in Excel. Code block language tags and HTML comments are lost during Excel export. Each external hyperlink applies to the full cell text. Links to locations in the same workbook are exported as display text.
 
 ## Configuration

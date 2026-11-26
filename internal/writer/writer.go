@@ -85,17 +85,24 @@ func (w *Writer) Write(components []parser.Component) string {
 
 // codeToMarkdown converts a Code component to a fenced code block.
 func (w *Writer) codeToMarkdown(c parser.Code) string {
-	var buf strings.Builder
-	buf.WriteString("```")
-	if c.Lang != "" {
-		buf.WriteString(c.Lang)
+	fenceLen := 3
+	for _, line := range c.Codes {
+		trimmed := strings.TrimSpace(line)
+		if len(trimmed) >= fenceLen && strings.Trim(trimmed, "`") == "" {
+			fenceLen = len(trimmed) + 1
+		}
 	}
-	buf.WriteString("\n")
+	fence := strings.Repeat("`", fenceLen)
+	var buf strings.Builder
+	buf.WriteString(fence)
+	buf.WriteString(c.Lang)
+	buf.WriteByte('\n')
 	for _, line := range c.Codes {
 		buf.WriteString(line)
-		buf.WriteString("\n")
+		buf.WriteByte('\n')
 	}
-	buf.WriteString("```\n")
+	buf.WriteString(fence)
+	buf.WriteByte('\n')
 	return buf.String()
 }
 
