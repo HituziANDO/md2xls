@@ -858,6 +858,28 @@ func TestSecretsInShapeLabels(t *testing.T) {
 	}
 }
 
+// Literal notation longer than a row may be divided; it must not make a
+// value that fits look too long.
+func TestLongLiteralNotationDoesNotBlockValues(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{
+		"doc.md":     "See \\{{secret:production.database.password}} and {{secret:pw}} here in a long paragraph.\n",
+		"values.yml": "pw: Fake-Pass-7788\n",
+		".m2x.yml":   "max_num_of_characters_per_line: 30\n",
+	})
+	if err := runForward([]string{"--secrets", "values.yml", "-d", "doc.xlsx", "doc.md"}); err != nil {
+		t.Fatal("the paragraph was rejected although its value fits in a row")
+	}
+	f, err := excelize.OpenFile("doc.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if !slices.ContainsFunc(columnA(t, f), func(cell string) bool { return strings.Contains(cell, "Fake-Pass-7788") }) {
+		t.Error("the value is not whole in one cell")
+	}
+}
+
 // A value may also be a word in a name, as in {{secret:postgres.password}}.
 func TestSecretsCheckIgnoresNamesOfReferences(t *testing.T) {
 	t.Chdir(t.TempDir())
@@ -937,7 +959,7 @@ func TestSecretsCheckFormsAndEmptyFile(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFiles(t, map[string]string{
 		"values.yml": "lines: \"FakeLine1\\nFakeLine2\"\n",
-		"doc.md":     "| a | b |\n| --- | --- |\n| `{{secret:lines}}` | {{secret:lines}} |\n",
+		"doc.md":     "| a | b |\n| --- | --- |\n| `{{secret:lines}}` | {{secret:lines}} |\n\n> key {{secret:lines}} end\n",
 		"empty.yml":  "# nothing yet\npin: '993'\n",
 		"leak.md":    "pin 993 and FakeLine1\n",
 	})
@@ -949,8 +971,8 @@ func TestSecretsCheckFormsAndEmptyFile(t *testing.T) {
 	}
 	var err error
 	stdout, _ := capture(t, func() { err = runSecrets([]string{"check", "--secrets", "values.yml", "back.md"}) })
-	if err == nil || stdout != "back.md:3: lines\nback.md:3: lines\n" {
-		t.Errorf("the multi-line value in a table row was not found twice: %q", stdout)
+	if err == nil || stdout != "back.md:3: lines\nback.md:3: lines\nback.md:5: lines\n" {
+		t.Errorf("the multi-line value was not found in the table row and the blockquote: %q", stdout)
 	}
 
 	stdout, stderr := capture(t, func() { err = runSecrets([]string{"check", "--secrets", "empty.yml", "leak.md"}) })

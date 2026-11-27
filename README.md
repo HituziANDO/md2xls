@@ -145,7 +145,7 @@ md2xls --secrets secrets.yml -s design.md -d design.xlsx
 ```
 
 - **Reference:** `\{{secret:NAME}}`. `NAME` may contain letters, digits, `.`, `_`, and `-`. References work in headings, paragraphs, table cells, lists, blockquotes, code blocks, and inline code, several per line. Other `{{ ... }}` text such as `{{ user.name }}` is left as written.
-- **Values file:** A single YAML document. Nested keys are joined with `.`, so `password` under `smtp` is `smtp.password`. Every value is used as the text written in the file (`0123` stays `0123`). Names that a document does not reference are ignored, so one file can serve several documents.
+- **Values file:** A single YAML document of strings and nested mappings (a list is an error). Nested keys are joined with `.`, so `password` under `smtp` is `smtp.password`. Every value is used as the text written in the file (`0123` stays `0123`). Names that a document does not reference are ignored, so one file can serve several documents.
 - **Where to set it:** `--secrets FILE`, or `secrets: FILE` in `.m2x.yml`. The flag takes precedence.
 - **Literal text:** A backslash keeps the text as written: the Markdown `\` followed by `{{`, `secret:NAME`, `}}` produces the reference notation itself in Excel, without the backslash.
 - **Output:** The value reaches the cell unchanged. Characters such as `|`, `*`, `_`, `` ` ``, `<`, and `&` are not read as Markdown, and a value starting with `=` is stored as text, not as a formula. Wrapping and table column widths use the value. The Markdown with values exists only in memory.
@@ -169,11 +169,11 @@ md2xls secrets check [-c CONFIG] [--secrets FILE] FILE.md ...
 **Limits**
 
 - Values inside images (PNG, SVG) are not replaced. A reference in the path or alt text of a Markdown image (`![alt](path)`) is an error.
-- Text that only resembles a reference, such as `{{ secret:NAME }}` with spaces or `{{Secret:NAME}}`, is left as written, with a warning.
+- Text that only resembles a reference, with spaces inside the braces or a capital letter in `secret`, is left as written, with a warning.
 - A document that contains the private-use characters U+E000 or U+E001 cannot use references or the backslash escape; md2xls reports an error.
 - A reference inside an HTML comment still needs a value, although comments are not written to Excel.
 - A value cannot directly follow a backslash, because the backslash makes the reference literal. Text such as a Windows domain followed by a secret user name needs the backslash inside the value.
-- `secrets check` looks for the value as written in the values file and as `md2xls reverse` writes it in a table cell (for example `|` as `\|`) or in a diagram label. It does not find a value rewritten in any other way. When the values file has no value of four or more characters, it checks nothing and prints a warning.
+- `secrets check` looks for the value as written in the values file and as `md2xls reverse` writes it in a table cell (for example `|` as `\|`), in a blockquote, or in a diagram label. It does not find a value rewritten in any other way. When the values file has no value of four or more characters, it checks nothing and prints a warning.
 
 ### [Excel to Markdown](./docs/excel_to_markdown.md)
 

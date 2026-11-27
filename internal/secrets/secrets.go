@@ -43,12 +43,12 @@ var (
 	// placeholder stands for an escaped, literal "{{secret:".
 	placeholderRegex = regexp.MustCompile(placeholderOpen + `([0-9]*)` + placeholderClose)
 	numberedRegex    = regexp.MustCompile(placeholderOpen + `[0-9]+` + placeholderClose)
+	// Text such as "{{ secret:NAME }}" or "{{Secret:NAME}}" that a writer may
+	// take for a reference.
+	lookAlikeRegex = regexp.MustCompile(`(?i)\\?\{\{\s*secret\s*:`)
 	// Excel stores text as XML: other control characters cannot be written,
 	// a carriage return is read back as a line feed, and _xHHHH_ is read back
 	// as the character with that code.
-	// Text such as "{{ secret:NAME }}" or "{{Secret:NAME}}" that a writer may
-	// take for a reference.
-	lookAlikeRegex  = regexp.MustCompile(`(?i)\\?\{\{\s*secret\s*:`)
 	unstorableRegex = regexp.MustCompile(`[\x00-\x08\x0B-\x1F\x{FFFE}\x{FFFF}]|_x[0-9A-Fa-f]{4}_`)
 )
 
@@ -113,15 +113,18 @@ func Literals(text string) []string {
 	return refRegex.FindAllString(text, -1)
 }
 
-// MaskReferences blanks the references to names the store defines, keeping
-// every offset. A value that is also part of a name ("postgres" in
-// {{secret:postgres.password}}) is then not taken for a leaked value.
+// MaskReferences blanks the names in the references to names the store
+// defines, keeping every offset. A value that is also part of a name
+// ("postgres" in {{secret:postgres.password}}) is then not taken for a
+// leaked value. The braces stay, so a value next to a reference that begins
+// or ends with braces is still found.
 func (s *Store) MaskReferences(text string) string {
 	return refRegex.ReplaceAllStringFunc(text, func(ref string) string {
-		if _, ok := s.values[refRegex.FindStringSubmatch(ref)[1]]; !ok {
+		name := refRegex.FindStringSubmatch(ref)[1]
+		if _, ok := s.values[name]; !ok {
 			return ref
 		}
-		return strings.Repeat("\x00", len(ref))
+		return Reference(strings.Repeat("\x00", len(name)))
 	})
 }
 

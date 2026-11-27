@@ -261,10 +261,11 @@ func wrapAroundValues(comp parser.Component, names []string, value func(string) 
 	for _, seg := range p.RichText {
 		text.WriteString(seg.Text)
 	}
-	values := secrets.Literals(text.String())
-	if len(names)+len(values) == 0 || utf8.RuneCountInString(text.String()) <= maxChars {
+	literals := secrets.Literals(text.String())
+	if len(names)+len(literals) == 0 || utf8.RuneCountInString(text.String()) <= maxChars {
 		return []parser.Component{comp}, nil
 	}
+	var values []string
 	for _, name := range names {
 		v := value(name)
 		values = append(values, v)
@@ -275,10 +276,16 @@ func wrapAroundValues(comp parser.Component, names []string, value func(string) 
 	if len(tooLong) > 0 {
 		return []parser.Component{comp}, tooLong
 	}
-	wrapped, ok := secrets.WrapParagraph(p, values, maxChars)
+	wrapped, ok := secrets.WrapParagraph(p, append(literals, values...), maxChars)
 	if !ok {
-		// Values that touch or overlap are together longer than a row. With
-		// no names, only literal notation is too long, which may be divided.
+		// Literal notation that does not fit may be divided; values may not.
+		if len(names) == 0 {
+			return []parser.Component{comp}, nil
+		}
+		wrapped, ok = secrets.WrapParagraph(p, values, maxChars)
+	}
+	if !ok {
+		// Values that touch or overlap are together longer than a row.
 		return []parser.Component{comp}, slices.Compact(slices.Sorted(slices.Values(names)))
 	}
 	for _, row := range wrapped {
@@ -613,13 +620,15 @@ func runSecrets(args []string) error {
 		fmt.Fprintf(os.Stderr, "warning: secrets file %q has no value of %d or more characters, so nothing is checked\n", secretsPath, secrets.MinReverseLength)
 	}
 	// "md2xls reverse" escapes characters such as | in table cells, writes a
-	// line break in a table cell's inline code as &#10;, and escapes
-	// characters such as & in the Mermaid labels made from shapes.
+	// line break in a table cell's inline code as &#10;, escapes characters
+	// such as & in the Mermaid labels made from shapes, and starts every line
+	// of a blockquote with "> ".
 	reverser.AddForm(writer.EscapeTableCell)
 	reverser.AddForm(func(value string) string {
 		return strings.ReplaceAll(writer.EscapeTableCell(value), "<br>", "&#10;")
 	})
 	reverser.AddForm(reader.EscapeMermaidLabel)
+	reverser.AddForm(func(value string) string { return strings.ReplaceAll(value, "\n", "\n> ") })
 
 	found := 0
 	for _, file := range fs.Args() {

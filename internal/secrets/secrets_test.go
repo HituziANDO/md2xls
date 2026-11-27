@@ -81,19 +81,20 @@ func TestLookAlikes(t *testing.T) {
 }
 
 func TestMaskReferences(t *testing.T) {
-	store := loadYAML(t, "db:\n  user: postgres\npostgres:\n  password: Fake-Pg-Pass-01\n")
+	store := loadYAML(t, "db:\n  user: postgres\npostgres:\n  password: Fake-Pg-Pass-01\ntail: '}}zzzz'\n")
 	r, _ := store.Reverser()
-	text := "user {{secret:db.user}}, password {{secret:postgres.password}}\nundefined {{secret:postgres.other}} and plain postgres\n"
+	text := "user {{secret:db.user}}, password {{secret:postgres.password}}\nundefined {{secret:postgres.other}} and plain postgres\nsee {{secret:db.user}}zzzz\n"
 	masked := store.MaskReferences(text)
-	if len(masked) != len(text) || strings.Count(masked, "\n") != 2 {
+	if len(masked) != len(text) || strings.Count(masked, "\n") != 3 {
 		t.Fatal("masking changed the offsets")
 	}
 	var found []int
 	for _, m := range r.Find(masked) {
 		found = append(found, m.Start)
 	}
-	// The name of a defined reference is not a leak; other text still is.
-	want := []int{strings.Index(text, "postgres.other"), strings.LastIndex(text, "postgres")}
+	// The name of a defined reference is not a leak; other text still is,
+	// including a value that begins with the braces closing a reference.
+	want := []int{strings.Index(text, "postgres.other"), strings.LastIndex(text, "postgres"), strings.Index(text, "}}zzzz")}
 	if !slices.Equal(found, want) {
 		t.Errorf("matches at %v, want %v", found, want)
 	}
