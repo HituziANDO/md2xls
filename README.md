@@ -82,6 +82,13 @@ Positional inputs or a single `-s` replace the entire configured input list. Com
 
 ### CLI flags
 
+```text
+md2xls [-c CONFIG] [-d OUTPUT] [--no-heading-number] [-s INPUT.md | FILE.md ...]
+md2xls -v
+```
+
+Put options before positional paths. Use either `-s` (one input) or positional paths (one or more inputs). Omitting both uses the configured input.
+
 | Flag | Shorthand | Default | Description |
 |------|-----------|---------|-------------|
 | `--src` | `-s` | (from config) | Input Markdown file path |
