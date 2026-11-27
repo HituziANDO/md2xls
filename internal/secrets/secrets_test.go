@@ -50,6 +50,7 @@ func TestLoadErrorsOmitContent(t *testing.T) {
 		"duplicate.yml": "db.password: " + fake + "\ndb:\n  password: " + fake + "\n",
 		"cycle.yml":     "a: &x\n  b: *x\n  c: " + fake + "\n",
 		"two.yml":       "a: one-value\n---\nb: " + fake + "\n",
+		"flow.yml":      "password: {" + fake + "}\n",
 		"three.yml":     "a: one-value\n---\n---\nb: " + fake + "\n",
 	} {
 		path := filepath.Join(dir, name)
@@ -81,7 +82,7 @@ func TestLookAlikes(t *testing.T) {
 }
 
 func TestMaskReferences(t *testing.T) {
-	store := loadYAML(t, "db:\n  user: postgres\npostgres:\n  password: Fake-Pg-Pass-01\ntail: '}}zzzz'\n")
+	store := loadYAML(t, "db:\n  user: postgres\npostgres:\n  password: Fake-Pg-Pass-01\ntail: '}}zzzz'\nword: secret\n")
 	r, _ := store.Reverser()
 	text := "user {{secret:db.user}}, password {{secret:postgres.password}}\nundefined {{secret:postgres.other}} and plain postgres\nsee {{secret:db.user}}zzzz\n"
 	masked := store.MaskReferences(text)
@@ -110,6 +111,44 @@ func TestLoadAcceptsDocumentMarkers(t *testing.T) {
 		if r, _ := loadYAML(t, content).Reverser(); r.Len() != 0 {
 			t.Errorf("%q: expected no values", content)
 		}
+	}
+}
+
+// Part of a value was formatted in Excel, so no single segment holds it.
+func TestReverserReplacesValuesAcrossSegments(t *testing.T) {
+	store := loadYAML(t, "pw: Fake-Pass-7788\nother: Fake-Other-02\n")
+	r, _ := store.Reverser()
+	split := []parser.RichTextSegment{{Text: "Fake-"}, {Text: "Pass", Bold: true}, {Text: "-7788"}}
+	components := []parser.Component{
+		&parser.Table{
+			Header: []string{"k"}, HeaderRichText: [][]parser.RichTextSegment{nil},
+			Data:         [][]string{{"Fake-Pass-7788"}},
+			DataRichText: [][][]parser.RichTextSegment{{slices.Clone(split)}},
+		},
+		parser.PlainText{Text: "Fake-Other-02 and Fake-Pass-7788", RichText: append([]parser.RichTextSegment{{Text: "Fake-Other-02 and "}}, split...)},
+		parser.List{Items: []parser.ListItem{{Text: "x Fake-Pass-7788", RichText: append([]parser.RichTextSegment{{Text: "x "}}, split...)}}},
+		// Formatting that does not divide a value is kept.
+		parser.PlainText{Text: "bold Fake-Pass-7788", RichText: []parser.RichTextSegment{{Text: "bold "}, {Text: "Fake-Pass-7788", Bold: true}}},
+	}
+	r.ReplaceComponents(components)
+	table := components[0].(*parser.Table)
+	if table.Data[0][0] != "{{secret:pw}}" || len(table.DataRichText[0][0]) != 1 || table.DataRichText[0][0][0].Text != "{{secret:pw}}" {
+		t.Errorf("table = %q, %v", table.Data, table.DataRichText)
+	}
+	p := components[1].(parser.PlainText)
+	if len(p.RichText) != 1 || p.RichText[0].Text != "{{secret:other}} and {{secret:pw}}" {
+		t.Errorf("paragraph = %v", p.RichText)
+	}
+	item := components[2].(parser.List).Items[0]
+	if len(item.RichText) != 1 || item.RichText[0].Text != "x {{secret:pw}}" {
+		t.Errorf("list item = %v", item.RichText)
+	}
+	kept := components[3].(parser.PlainText)
+	if len(kept.RichText) != 2 || !kept.RichText[1].Bold || kept.RichText[1].Text != "{{secret:pw}}" {
+		t.Errorf("formatted paragraph = %v", kept.RichText)
+	}
+	if r.Counts()["pw"] != 4 || r.Counts()["other"] != 1 {
+		t.Errorf("counts = %v, want pw 4 and other 1", r.Counts())
 	}
 }
 

@@ -72,7 +72,7 @@ func LongestText(comp parser.Component) int {
 		longest = max(longest, len(utf16.Encode([]rune(s))))
 		return s
 	}
-	mapText([]parser.Component{comp}, measure, measure)
+	mapText([]parser.Component{comp}, uniform(measure))
 	return longest
 }
 
@@ -113,19 +113,23 @@ func Literals(text string) []string {
 	return refRegex.FindAllString(text, -1)
 }
 
-// MaskReferences blanks the names in the references to names the store
-// defines, keeping every offset. A value that is also part of a name
-// ("postgres" in {{secret:postgres.password}}) is then not taken for a
-// leaked value. The braces stay, so a value next to a reference that begins
-// or ends with braces is still found.
+// MaskReferences blanks the word "secret:" of every reference, and the name
+// of every reference to a name the store defines, keeping every offset. A
+// value that is also part of a name ("postgres" in
+// {{secret:postgres.password}}), or the value "secret", is then not taken
+// for a leaked value. The braces stay, so a value next to a reference that
+// begins or ends with braces is still found, and so does an undefined name,
+// which may be a value typed in the place of a name.
 func (s *Store) MaskReferences(text string) string {
-	return refRegex.ReplaceAllStringFunc(text, func(ref string) string {
+	blank := func(n int) string { return strings.Repeat("\x00", n) }
+	text = refRegex.ReplaceAllStringFunc(text, func(ref string) string {
 		name := refRegex.FindStringSubmatch(ref)[1]
 		if _, ok := s.values[name]; !ok {
 			return ref
 		}
-		return Reference(strings.Repeat("\x00", len(name)))
+		return refPrefix + blank(len(name)) + "}}"
 	})
+	return strings.ReplaceAll(text, refPrefix, "{{"+blank(len("secret:")))
 }
 
 // Protect replaces each reference with a placeholder that the Markdown parser
@@ -191,7 +195,7 @@ func Expand(components []parser.Component, refs []Ref, value func(name string) s
 			return value(refs[i].Name)
 		})
 	}
-	mapText(components, expand, expand)
+	mapText(components, uniform(expand))
 	return nil
 }
 
@@ -207,75 +211,81 @@ func Names(protected string, refs []Ref) []string {
 	return names
 }
 
-// mapText rewrites the text of the components in place. Where a component
-// carries both plain text and rich text segments for the same content, the
-// Markdown writer and the Excel renderer prefer the segments: shown receives
-// the text they output and hidden receives the copy they ignore.
-func mapText(components []parser.Component, shown, hidden func(string) string) {
-	segments := func(segs []parser.RichTextSegment) {
+// textMapper rewrites the text of components.
+type textMapper struct {
+	// text rewrites text that is written as it is.
+	text func(string) string
+	// aside rewrites a copy that neither the Markdown writer nor the Excel
+	// renderer outputs: the display text kept with a link.
+	aside func(string) string
+	// cell rewrites text that may come with rich text segments for the same
+	// content. The writer and the renderer output the segments when there
+	// are any, and the plain text otherwise.
+	cell func(text string, segs []parser.RichTextSegment) (string, []parser.RichTextSegment)
+}
+
+// uniform applies f to every text field.
+func uniform(f func(string) string) textMapper {
+	return textMapper{text: f, aside: f, cell: func(text string, segs []parser.RichTextSegment) (string, []parser.RichTextSegment) {
 		for i := range segs {
-			segs[i].Text = shown(segs[i].Text)
+			segs[i].Text = f(segs[i].Text)
 		}
-	}
-	plain := func(text string, segs []parser.RichTextSegment) string {
-		if len(segs) > 0 {
-			return hidden(text)
-		}
-		return shown(text)
-	}
+		return f(text), segs
+	}}
+}
+
+// mapText rewrites the text of the components in place.
+func mapText(components []parser.Component, m textMapper) {
 	lines := func(ls []string) []string {
 		if len(ls) == 0 {
 			return ls
 		}
 		// A value may span lines, and a multi-line value adds rows to the block.
-		return strings.Split(shown(strings.Join(ls, "\n")), "\n")
+		return strings.Split(m.text(strings.Join(ls, "\n")), "\n")
 	}
 	table := func(t *parser.Table) {
 		for i := range t.Header {
-			var segs []parser.RichTextSegment
 			if i < len(t.HeaderRichText) {
-				segs = t.HeaderRichText[i]
+				t.Header[i], t.HeaderRichText[i] = m.cell(t.Header[i], t.HeaderRichText[i])
+			} else {
+				t.Header[i], _ = m.cell(t.Header[i], nil)
 			}
-			t.Header[i] = plain(t.Header[i], segs)
-			segments(segs)
 		}
 		for r, row := range t.Data {
 			for i := range row {
-				var segs []parser.RichTextSegment
 				if r < len(t.DataRichText) && i < len(t.DataRichText[r]) {
-					segs = t.DataRichText[r][i]
+					row[i], t.DataRichText[r][i] = m.cell(row[i], t.DataRichText[r][i])
+				} else {
+					row[i], _ = m.cell(row[i], nil)
 				}
-				row[i] = plain(row[i], segs)
-				segments(segs)
 			}
 		}
 	}
 	for i, comp := range components {
 		switch c := comp.(type) {
 		case parser.H1:
-			c.Text = shown(c.Text)
+			c.Text = m.text(c.Text)
 			components[i] = c
 		case parser.H2:
-			c.Text = shown(c.Text)
+			c.Text = m.text(c.Text)
 			components[i] = c
 		case parser.H3:
-			c.Text = shown(c.Text)
+			c.Text = m.text(c.Text)
 			components[i] = c
 		case parser.H4:
-			c.Text = shown(c.Text)
+			c.Text = m.text(c.Text)
 			components[i] = c
 		case parser.H5:
-			c.Text = shown(c.Text)
+			c.Text = m.text(c.Text)
 			components[i] = c
 		case parser.H6:
-			c.Text = shown(c.Text)
+			c.Text = m.text(c.Text)
 			components[i] = c
 		case parser.PlainText:
-			c.Text = plain(c.Text, c.RichText)
-			segments(c.RichText)
+			c.Text, c.RichText = m.cell(c.Text, c.RichText)
 			for j := range c.Links {
-				c.Links[j].Text = hidden(c.Links[j].Text)
-				c.Links[j].URL = shown(c.Links[j].URL)
+				c.Links[j].Text = m.aside(c.Links[j].Text)
+				c.Links[j].URL = m.text(c.Links[j].URL)
 			}
 			components[i] = c
 		case parser.Table:
@@ -290,15 +300,14 @@ func mapText(components []parser.Component, shown, hidden func(string) string) {
 			c.Codes = lines(c.Codes)
 		case parser.List:
 			for j := range c.Items {
-				c.Items[j].Text = plain(c.Items[j].Text, c.Items[j].RichText)
-				segments(c.Items[j].RichText)
+				c.Items[j].Text, c.Items[j].RichText = m.cell(c.Items[j].Text, c.Items[j].RichText)
 			}
 		case parser.Blockquote:
 			c.Lines = lines(c.Lines)
 			components[i] = c
 		case parser.Image:
 			// The path names a file and is left alone.
-			c.Alt = shown(c.Alt)
+			c.Alt = m.text(c.Alt)
 			components[i] = c
 		}
 	}
@@ -376,6 +385,11 @@ func (s *Store) flatten(mapping *yaml.Node, prefix string, depth int) error {
 		value := resolveAlias(mapping.Content[i+1])
 		switch value.Kind {
 		case yaml.MappingNode:
+			if value.Style&yaml.FlowStyle != 0 {
+				// An unquoted value in braces is read as a mapping, and the
+				// value would then be shown as a name.
+				return fmt.Errorf("the value of %q is written in braces; quote it, or write the mapping on separate lines", name)
+			}
 			if err := s.flatten(value, name+".", depth+1); err != nil {
 				return err
 			}
@@ -540,7 +554,7 @@ func markLiteral(text string) string {
 // would escape it again inside table cells. Without the escape, converting
 // the Markdown to Excel again would read the text as a reference.
 func MarkLiterals(components []parser.Component) {
-	mapText(components, markLiteral, markLiteral)
+	mapText(components, uniform(markLiteral))
 }
 
 // EscapeLiterals writes the marks left by MarkLiterals or ReplaceComponents
@@ -553,9 +567,34 @@ func EscapeLiterals(markdown string) string {
 // field of the components and counts each replacement that reaches the
 // written Markdown.
 func (r *Reverser) ReplaceComponents(components []parser.Component) {
-	mapText(components,
-		func(s string) string { return r.replace(s, true) },
-		func(s string) string { return r.replace(s, false) })
+	mapText(components, textMapper{
+		text:  func(s string) string { return r.replace(s, true) },
+		aside: func(s string) string { return r.replace(s, false) },
+		cell:  r.replaceCell,
+	})
+}
+
+// replaceCell replaces the values in text that comes with rich text segments,
+// counting each replacement that is written once.
+func (r *Reverser) replaceCell(text string, segs []parser.RichTextSegment) (string, []parser.RichTextSegment) {
+	if len(segs) == 0 {
+		return r.replace(text, true), segs
+	}
+	inSegments := 0
+	for _, seg := range segs {
+		inSegments += len(r.Find(seg.Text))
+	}
+	if inSegments < len(r.Find(text)) {
+		// A value runs over segments with different formatting, as when part
+		// of it was set bold in Excel. Keeping the formatting would leave the
+		// value in the Markdown, so the cell is written as plain text.
+		replaced := r.replace(text, true)
+		return replaced, []parser.RichTextSegment{{Text: replaced}}
+	}
+	for i := range segs {
+		segs[i].Text = r.replace(segs[i].Text, true)
+	}
+	return r.replace(text, false), segs
 }
 
 // Len returns the number of values the Reverser looks for.

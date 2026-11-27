@@ -636,7 +636,8 @@ func runSecrets(args []string) error {
 		if err != nil {
 			return fmt.Errorf("read %q: %w", file, err)
 		}
-		text := string(data)
+		// A multi-line value holds line feeds only. The line numbers stay the same.
+		text := strings.ReplaceAll(string(data), "\r\n", "\n")
 		for _, m := range reverser.Find(store.MaskReferences(text)) {
 			found++
 			fmt.Printf("%s:%d: %s\n", file, 1+strings.Count(text[:m.Start], "\n"), m.Name)

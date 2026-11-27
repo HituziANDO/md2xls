@@ -884,7 +884,7 @@ func TestLongLiteralNotationDoesNotBlockValues(t *testing.T) {
 func TestSecretsCheckIgnoresNamesOfReferences(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFiles(t, map[string]string{
-		"values.yml": "db:\n  user: postgres\npostgres:\n  password: Fake-Pg-Pass-01\n",
+		"values.yml": "db:\n  user: postgres\npostgres:\n  password: Fake-Pg-Pass-01\nplaceholder: secret\n",
 		"clean.md":   "user {{secret:db.user}}, password {{secret:postgres.password}}\n",
 		"leak.md":    "user postgres, password {{secret:postgres.password}}\n",
 	})
@@ -973,6 +973,13 @@ func TestSecretsCheckFormsAndEmptyFile(t *testing.T) {
 	stdout, _ := capture(t, func() { err = runSecrets([]string{"check", "--secrets", "values.yml", "back.md"}) })
 	if err == nil || stdout != "back.md:3: lines\nback.md:3: lines\nback.md:5: lines\n" {
 		t.Errorf("the multi-line value was not found in the table row and the blockquote: %q", stdout)
+	}
+
+	// A file saved with CRLF line endings holds the same multi-line value.
+	writeFiles(t, map[string]string{"crlf.md": "# T\r\n\r\nFakeLine1\r\nFakeLine2\r\n"})
+	stdout, _ = capture(t, func() { err = runSecrets([]string{"check", "--secrets", "values.yml", "crlf.md"}) })
+	if err == nil || stdout != "crlf.md:3: lines\n" {
+		t.Errorf("the multi-line value was not found in the CRLF file: %q", stdout)
 	}
 
 	stdout, stderr := capture(t, func() { err = runSecrets([]string{"check", "--secrets", "empty.yml", "leak.md"}) })
