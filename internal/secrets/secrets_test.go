@@ -51,6 +51,7 @@ func TestLoadErrorsOmitContent(t *testing.T) {
 		"cycle.yml":     "a: &x\n  b: *x\n  c: " + fake + "\n",
 		"two.yml":       "a: one-value\n---\nb: " + fake + "\n",
 		"flow.yml":      "password: {" + fake + "}\n",
+		"flow2.yml":     "db: {user: one-value, password: {" + fake + "}}\n",
 		"three.yml":     "a: one-value\n---\n---\nb: " + fake + "\n",
 	} {
 		path := filepath.Join(dir, name)
@@ -152,6 +153,69 @@ func TestReverserReplacesValuesAcrossSegments(t *testing.T) {
 	}
 }
 
+// The divided value contains another value, which sits whole in one segment.
+func TestReverserReplacesValueAroundFormattedValue(t *testing.T) {
+	store := loadYAML(t, "db:\n  user: admin\n  password: admin-Pass1234\n")
+	r, _ := store.Reverser()
+	components := []parser.Component{parser.PlainText{
+		Text:     "Overlap admin-Pass1234 here",
+		RichText: []parser.RichTextSegment{{Text: "Overlap "}, {Text: "admin", Bold: true}, {Text: "-Pass1234 here"}},
+	}}
+	r.ReplaceComponents(components)
+	p := components[0].(parser.PlainText)
+	if len(p.RichText) != 1 || p.RichText[0].Text != "Overlap {{secret:db.password}} here" || p.Text != p.RichText[0].Text {
+		t.Errorf("paragraph = %q, %v", p.Text, p.RichText)
+	}
+	if r.Counts()["db.password"] != 1 || r.Counts()["db.user"] != 0 {
+		t.Errorf("counts = %v", r.Counts())
+	}
+}
+
+// Literal notation divided between two segments is still escaped.
+func TestLiteralNotationAcrossSegments(t *testing.T) {
+	segments := func() []parser.RichTextSegment {
+		return []parser.RichTextSegment{{Text: "see {{secret"}, {Text: ":api.token}} and "}, {Text: "bold", Bold: true}}
+	}
+	const want = `see \{{secret:api.token}} and bold`
+
+	plain := []parser.Component{parser.PlainText{Text: "see {{secret:api.token}} and bold", RichText: segments()}}
+	MarkLiterals(plain)
+	if p := plain[0].(parser.PlainText); len(p.RichText) != 1 || EscapeLiterals(p.RichText[0].Text) != want {
+		t.Errorf("without a secrets file: %v", p.RichText)
+	}
+
+	store := loadYAML(t, "pw: Fake-Pass-7788\n")
+	r, _ := store.Reverser()
+	withValues := []parser.Component{parser.PlainText{Text: "see {{secret:api.token}} and bold", RichText: segments()}}
+	r.ReplaceComponents(withValues)
+	if p := withValues[0].(parser.PlainText); len(p.RichText) != 1 || EscapeLiterals(p.RichText[0].Text) != want {
+		t.Errorf("with a secrets file: %v", p.RichText)
+	}
+
+	// A cell without divided notation keeps its formatting.
+	kept := []parser.Component{parser.PlainText{Text: "a {{secret:x}} b", RichText: []parser.RichTextSegment{{Text: "a {{secret:x}} "}, {Text: "b", Bold: true}}}}
+	MarkLiterals(kept)
+	if p := kept[0].(parser.PlainText); len(p.RichText) != 2 || !p.RichText[1].Bold {
+		t.Errorf("formatting was dropped: %v", p.RichText)
+	}
+}
+
+func TestWithoutFinalLineFeeds(t *testing.T) {
+	store := loadYAML(t, "block: |\n  Block-Scalar-Value-1\nshort: |\n  abc\nplain: Fake-Plain-01\n")
+	r, _ := store.Reverser()
+	before := r.Len()
+	r.AddForm(WithoutFinalLineFeeds)
+	// "abc" is too short to look for once its line feed is removed.
+	if r.Len() != before+1 {
+		t.Errorf("AddForm added %d forms, want 1", r.Len()-before)
+	}
+	components := []parser.Component{parser.H1{Text: "The password is Block-Scalar-Value-1 (rotate) and abc"}}
+	r.ReplaceComponents(components)
+	if got := components[0].(parser.H1).Text; got != "The password is {{secret:block}} (rotate) and abc" {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestReverserReplacesImageAltText(t *testing.T) {
 	store := loadYAML(t, "user: Fake-User-01\n")
 	r, _ := store.Reverser()
@@ -175,6 +239,14 @@ func TestMarkLiteralsLeavesPrivateUseCharacters(t *testing.T) {
 	MarkLiterals(components)
 	if got := EscapeLiterals(components[0].(parser.H1).Text); got != "icons \uE000\uE001 and \\{{secret:NAME}}" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestLoadAcceptsBracedMappings(t *testing.T) {
+	for _, content := range []string{"smtp: {password: one-value}\n", "{\"smtp\": {\"password\": \"one-value\"}}\n"} {
+		if v, ok := loadYAML(t, content).Value("smtp.password"); !ok || v != "one-value" {
+			t.Errorf("%q: the value was not read", content)
+		}
 	}
 }
 

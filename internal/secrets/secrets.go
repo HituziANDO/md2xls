@@ -211,6 +211,16 @@ func Names(protected string, refs []Ref) []string {
 	return names
 }
 
+// NamesIn returns the names referenced by placeholders in a parsed component.
+func NamesIn(comp parser.Component, refs []Ref) []string {
+	var names []string
+	mapText([]parser.Component{comp}, uniform(func(s string) string {
+		names = append(names, Names(s, refs)...)
+		return s
+	}))
+	return names
+}
+
 // textMapper rewrites the text of components.
 type textMapper struct {
 	// text rewrites text that is written as it is.
@@ -386,9 +396,14 @@ func (s *Store) flatten(mapping *yaml.Node, prefix string, depth int) error {
 		switch value.Kind {
 		case yaml.MappingNode:
 			if value.Style&yaml.FlowStyle != 0 {
-				// An unquoted value in braces is read as a mapping, and the
-				// value would then be shown as a name.
-				return fmt.Errorf("the value of %q is written in braces; quote it, or write the mapping on separate lines", name)
+				// An unquoted value in braces, "password: {value}", is read as
+				// a mapping with a key and nothing after it. The value would
+				// then be shown as a name.
+				for j := 1; j < len(value.Content); j += 2 {
+					if v := value.Content[j]; v.Kind == yaml.ScalarNode && v.Tag == "!!null" && v.Value == "" {
+						return fmt.Errorf("the value of %q is written in braces; put it in quotes", name)
+					}
+				}
 			}
 			if err := s.flatten(value, name+".", depth+1); err != nil {
 				return err
@@ -478,11 +493,21 @@ func (s *Store) Reverser() (r *Reverser, warnings []string) {
 	return r, warnings
 }
 
+// WithoutFinalLineFeeds is a form for AddForm. A value written as a YAML
+// block scalar ("password: |") ends with a line feed, which text that quotes
+// the value in the middle of a line does not have.
+func WithoutFinalLineFeeds(value string) string {
+	return strings.TrimRight(value, "\n")
+}
+
 // AddForm also looks for each value as rewritten by form, for text in which
 // the value does not appear literally (such as an escaped table cell).
 func (r *Reverser) AddForm(form func(value string) string) {
 	for _, e := range r.entries {
 		rewritten := form(e.value)
+		if utf8.RuneCountInString(rewritten) < MinReverseLength {
+			continue
+		}
 		if !slices.ContainsFunc(r.entries, func(known entry) bool { return known.value == rewritten }) {
 			r.entries = append(r.entries, entry{e.name, rewritten})
 		}
@@ -554,7 +579,51 @@ func markLiteral(text string) string {
 // would escape it again inside table cells. Without the escape, converting
 // the Markdown to Excel again would read the text as a reference.
 func MarkLiterals(components []parser.Component) {
-	mapText(components, uniform(markLiteral))
+	m := uniform(markLiteral)
+	whole := m.cell
+	m.cell = func(text string, segs []parser.RichTextSegment) (string, []parser.RichTextSegment) {
+		if joined := joinSegments(segs); dividesLiteral(joined, segs) {
+			marked := markLiteral(joined)
+			return marked, []parser.RichTextSegment{{Text: marked}}
+		}
+		return whole(text, segs)
+	}
+	mapText(components, m)
+}
+
+func joinSegments(segs []parser.RichTextSegment) string {
+	var b strings.Builder
+	for _, seg := range segs {
+		b.WriteString(seg.Text)
+	}
+	return b.String()
+}
+
+// dividesLiteral reports whether a "{{secret:" runs over two segments, where
+// marking one segment at a time would miss it. Such a cell is written as
+// plain text.
+func dividesLiteral(joined string, segs []parser.RichTextSegment) bool {
+	n := 0
+	for _, seg := range segs {
+		n += strings.Count(seg.Text, refPrefix)
+	}
+	return strings.Count(joined, refPrefix) > n
+}
+
+// dividesValue reports whether a value in the joined text of the segments
+// runs over two of them, as when part of it was set bold in Excel.
+func (r *Reverser) dividesValue(joined string, segs []parser.RichTextSegment) bool {
+	matches := r.Find(joined)
+	boundary := 0
+	for _, seg := range segs[:len(segs)-1] {
+		boundary += len(seg.Text)
+		for _, m := range matches {
+			if m.Start < boundary && boundary < m.End {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // EscapeLiterals writes the marks left by MarkLiterals or ReplaceComponents
@@ -580,15 +649,10 @@ func (r *Reverser) replaceCell(text string, segs []parser.RichTextSegment) (stri
 	if len(segs) == 0 {
 		return r.replace(text, true), segs
 	}
-	inSegments := 0
-	for _, seg := range segs {
-		inSegments += len(r.Find(seg.Text))
-	}
-	if inSegments < len(r.Find(text)) {
-		// A value runs over segments with different formatting, as when part
-		// of it was set bold in Excel. Keeping the formatting would leave the
-		// value in the Markdown, so the cell is written as plain text.
-		replaced := r.replace(text, true)
+	if joined := joinSegments(segs); r.dividesValue(joined, segs) || dividesLiteral(joined, segs) {
+		// Replacing one segment at a time would leave the value, or part of
+		// it, in the Markdown, so the cell is written as plain text.
+		replaced := r.replace(joined, true)
 		return replaced, []parser.RichTextSegment{{Text: replaced}}
 	}
 	for i := range segs {

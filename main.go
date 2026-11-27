@@ -213,17 +213,16 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 			result[i] = components
 			continue
 		}
-		names := make([][]string, len(components)) // names referenced by each paragraph
+		names := make([][]string, len(components)) // names referenced by each component
 		for j, comp := range components {
-			if p, ok := comp.(parser.PlainText); ok {
-				names[j] = secrets.Names(p.Text, doc.refs)
-			}
+			names[j] = secrets.NamesIn(comp, doc.refs)
 		}
 		if err := secrets.Expand(components, doc.refs, value); err != nil {
 			return nil, fmt.Errorf("%s: %w", cfg.Sources[i], err)
 		}
 		for j, comp := range components {
-			if secrets.LongestText(comp)+cellPrefixAllowance > excelize.TotalCellChars {
+			// Text without values keeps the behaviour of documents without references.
+			if len(names[j]) > 0 && secrets.LongestText(comp)+cellPrefixAllowance > excelize.TotalCellChars {
 				problems = append(problems, fmt.Sprintf("%s:%d: the text with its secret values is longer than the %d characters an Excel cell can hold", cfg.Sources[i], lineOf(comp), excelize.TotalCellChars))
 			}
 			rows, tooLong := wrapAroundValues(comp, names[j], value, cfg.MaxNumOfCharactersPerLine)
@@ -481,7 +480,10 @@ func runReverse(args []string) error {
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}
-		// Text in shapes becomes Mermaid labels, which escape characters such as &.
+		// A value may be quoted without the line feed that ends a YAML block
+		// scalar. Text in shapes becomes Mermaid labels, which escape
+		// characters such as &.
+		reverser.AddForm(secrets.WithoutFinalLineFeeds)
 		reverser.AddForm(reader.EscapeMermaidLabel)
 	}
 
@@ -619,6 +621,8 @@ func runSecrets(args []string) error {
 	if reverser.Len() == 0 {
 		fmt.Fprintf(os.Stderr, "warning: secrets file %q has no value of %d or more characters, so nothing is checked\n", secretsPath, secrets.MinReverseLength)
 	}
+	// A value may be quoted without the line feed that ends a YAML block scalar.
+	reverser.AddForm(secrets.WithoutFinalLineFeeds)
 	// "md2xls reverse" escapes characters such as | in table cells, writes a
 	// line break in a table cell's inline code as &#10;, escapes characters
 	// such as & in the Mermaid labels made from shapes, and starts every line

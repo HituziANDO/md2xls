@@ -880,6 +880,47 @@ func TestLongLiteralNotationDoesNotBlockValues(t *testing.T) {
 	}
 }
 
+// A block scalar ends with a line feed; the value is still found where it is
+// quoted in the middle of a line.
+func TestBlockScalarValueIsFoundWithoutItsLineFeed(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{
+		"values.yml": "smtp:\n  password: |\n    Block-Scalar-Value-1\n",
+		"pasted.md":  "The password is Block-Scalar-Value-1 (rotate monthly).\n\n| k | v |\n| --- | --- |\n| pw | Block-Scalar-Value-1 |\n",
+	})
+	var err error
+	stdout, _ := capture(t, func() { err = runSecrets([]string{"check", "--secrets", "values.yml", "pasted.md"}) })
+	if err == nil || stdout != "pasted.md:1: smtp.password\npasted.md:5: smtp.password\n" {
+		t.Errorf("the value was not reported on both lines: %q", stdout)
+	}
+	if err := runForward([]string{"-d", "pasted.xlsx", "pasted.md"}); err != nil {
+		t.Fatal(err)
+	}
+	capture(t, func() {
+		err = runReverse([]string{"--secrets", "values.yml", "-s", "pasted.xlsx", "-d", "back.md"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back, _ := os.ReadFile("back.md"); strings.Contains(string(back), "Block-Scalar") || strings.Count(string(back), "{{secret:smtp.password}}") != 2 {
+		t.Error("the value was not replaced in the reversed Markdown")
+	}
+}
+
+// Text without values keeps the behaviour of a document without references,
+// where Excel truncates a cell longer than its limit.
+func TestLongBlockWithoutValuesStillConverts(t *testing.T) {
+	t.Chdir(t.TempDir())
+	block := "```\n" + strings.Repeat(strings.Repeat("x", 99)+"\n", 400) + "```\n"
+	writeFiles(t, map[string]string{
+		"doc.md":     "# T\n\n" + block + "\nPassword: {{secret:pw}}\n",
+		"values.yml": "pw: Fake-Pass-7788\n",
+	})
+	if err := runForward([]string{"--secrets", "values.yml", "-d", "doc.xlsx", "doc.md"}); err != nil {
+		t.Fatal("a long block without values stopped the conversion")
+	}
+}
+
 // A value may also be a word in a name, as in {{secret:postgres.password}}.
 func TestSecretsCheckIgnoresNamesOfReferences(t *testing.T) {
 	t.Chdir(t.TempDir())
