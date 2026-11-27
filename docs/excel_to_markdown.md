@@ -7,7 +7,7 @@ Convert an Excel workbook to Markdown and extract embedded images.
 ```text
 md2xls reverse [-c CONFIG] [-s INPUT.xlsx] [-d OUTPUT] [--image-dir DIRECTORY]
                [--sheet NAME | --all-sheets] [--split-sheets[=BOOL]]
-               [--no-strip-heading-number]
+               [--no-strip-heading-number] [--secrets FILE]
 ```
 
 ### Options
@@ -22,6 +22,7 @@ md2xls reverse [-c CONFIG] [-s INPUT.xlsx] [-d OUTPUT] [--image-dir DIRECTORY]
 | `--all-sheets` |  | No override; use `--sheet` or the fallback described above. | Convert all worksheets in workbook order, regardless of `sheet_name`. |
 | `--split-sheets` |  | `reverse.split_sheets` (built-in default: `false`, one file). | Write one file per selected worksheet. Use `--split-sheets=false` to turn off configured splitting. |
 | `--no-strip-heading-number` |  | `reverse.strip_heading_number` (built-in default: `true`, strip numbers). | Keep heading numbers such as `1.` or `1.1.`. |
+| `--secrets` |  | Top-level `secrets`; if unset, values are not replaced. | YAML file whose values are written back as `{{secret:NAME}}`. |
 
 ## Worksheets and images
 
@@ -64,6 +65,26 @@ reverse:
     fill_colors:
       - '#E2F0D9'
 ```
+
+## Secret values
+
+With `--secrets FILE` (or `secrets: FILE` in `.m2x.yml`), the values from the [values file](../README.md#secret-values) are written to Markdown as `{{secret:NAME}}`, so a workbook built with `md2xls --secrets` converts back to Markdown without the values.
+
+```sh
+md2xls reverse --secrets secrets.yml -s design.xlsx -d design.md
+```
+
+- **Order:** Longer values are replaced first, so a value that is part of another value does not split it.
+- **Shared values:** When several names have the same value, the first name in lexical order is used and a warning lists the names.
+- **Short values:** Values shorter than four characters, such as `-` or `993`, are not replaced, because they would match unrelated text. A warning names them, and they stay in the Markdown as values.
+- **Report:** The number of replacements per name is printed to standard error. Warnings and the report contain names, file names, and counts, never a value.
+- **Matching:** Every occurrence of a value in the workbook text becomes a reference, including text that did not come from a reference.
+
+Limits:
+
+- Values inside images are not replaced. If an extracted SVG contains a value, a warning names the file and the secret; the SVG is left unchanged. Values inside PNG and other bitmap images are not detected.
+- A value that Excel export wrapped across worksheet rows may not be recognized. Excel export warns about each such reference. Put long values in a table cell or a code block, which are not wrapped.
+- A value that was edited in Excel no longer matches and stays in the Markdown. Run `md2xls secrets check` on the result before committing.
 
 ## Conversion limits
 

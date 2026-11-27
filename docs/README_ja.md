@@ -83,7 +83,8 @@ CLIで入力を指定すると、設定の入力リスト全体を置き換え�
 ### CLIフラグ
 
 ```text
-md2xls [-c CONFIG] [-d OUTPUT] [--no-heading-number] [-s INPUT.md | FILE.md ...]
+md2xls [-c CONFIG] [-d OUTPUT] [--no-heading-number] [--secrets FILE | --mask-secrets]
+       [-s INPUT.md | FILE.md ...]
 md2xls -v
 ```
 
@@ -96,6 +97,8 @@ md2xls -v
 | `--config` | `-c` | `.m2x.yml` | 設定ファイルのパス |
 | `--version` | `-v` | | バージョンを表示して終了 |
 | `--no-heading-number` | | | 見出しの自動採番を無効化 |
+| `--secrets` | | （設定ファイルの値） | `{{secret:NAME}}` に差し込む値を書いたYAMLファイル |
+| `--mask-secrets` | | | 値のファイルを読まず、すべての `{{secret:NAME}}` を `***` にする |
 
 CLIフラグは設定ファイルの対応する値を上書きします。
 
@@ -120,6 +123,52 @@ md2xls -c my-config.yml
 ```sh
 md2xls -v
 ```
+
+### 秘密値の差し込み
+
+パスワードなどの秘密値をMarkdownに書かずに済ませます。文書には名前だけを書き、値はgitの管理外のYAMLファイルに置いて、Excelを作るときにmd2xlsが値を差し込みます。
+
+```markdown
+| 項目 | 値 |
+| --- | --- |
+| SMTPパスワード | {{secret:smtp.password}} |
+```
+
+```yaml
+# secrets.yml（コミットしない）
+smtp:
+  password: "Example|Pass*word"
+```
+
+```sh
+md2xls --secrets secrets.yml -s design.md -d design.xlsx
+```
+
+- **書き方：** `{{secret:NAME}}`。`NAME` に使える文字は英数字と `.`・`_`・`-` です。見出し、段落、表のセル、リスト、引用、コードブロック、インラインコードのどこにでも書け、1行に複数あっても置き換えます。`{{ user.name }}` のような、`secret:` の無い `{{ ... }}` はそのまま残します。
+- **値のファイル：** YAMLです。入れ子のキーは `.` でつないだ名前になります（`smtp` の下の `password` は `smtp.password`）。値はファイルに書かれたままの文字列として扱います（`0123` は `0123` のまま）。文書が参照していない名前は無視するので、1つのファイルを複数の文書で使えます。
+- **指定方法：** `--secrets FILE`、または `.m2x.yml` の `secrets: FILE`。フラグが優先です。
+- **出力：** 値はそのままセルに入ります。`|`・`*`・`_`・`` ` ``・`<`・`&` などをMarkdownの記法として解釈せず、`=` で始まる値は数式ではなく文字列として保存します。折り返しと表の列幅は、値に置き換えた後の文字列で計算します。値の入ったMarkdownはメモリ上にだけ存在します。
+- **値が足りないとき：** 参照に対応する値が無い、または値のファイルが指定されていない場合は、該当する参照をすべて `ファイル名:行番号` つきで表示し、Excelを書き出さずに0以外の終了コードで終了します。`{{secret:my name}}` のような書式の誤りも同じ扱いです。
+- **値を伏せた版：** `--mask-secrets` を付けると、値のファイルを読まずに、すべての参照を `***` にしてExcelを作ります。`--secrets` とは併用できません。
+- **Markdownに戻す：** `md2xls reverse --secrets FILE` で、値を参照に戻します。[ExcelからMarkdownに変換する](./excel_to_markdown_ja.md#秘密値を名前に戻す)を参照してください。
+
+md2xlsが表示するのは名前、ファイル名、行番号、回数だけで、値は表示しません。
+
+**値をgitに入れないために**
+
+- 値のファイルを `.gitignore` に追加します。
+- 作ったExcelファイルはコミットしません（値が入っています）。
+- コミット前のフックから `md2xls secrets check` を呼びます。渡したファイルに4文字以上の値がそのまま含まれていると、0以外の終了コードで終了し、1件ごとに `ファイル名:行番号: 名前` を表示します。
+
+```sh
+md2xls secrets check [-c CONFIG] [--secrets FILE] FILE.md ...
+```
+
+**制限**
+
+- 画像（PNG・SVG）の中の値は置き換えません。画像のパスや代替テキストに参照を書くとエラーになります。
+- HTMLコメントの中の参照にも値が必要です（コメント自体はExcelに出力されません）。
+- `secrets check` は、値のファイルに書かれたとおりの文字列と、`md2xls reverse` が表のセルに書き出す形（`|` を `\|` にするなど）を探します。それ以外の形に書き換えられた値は見つけられません。
 
 ### [ExcelからMarkdownに変換する](./excel_to_markdown_ja.md)
 
@@ -167,6 +216,7 @@ heading_font_size:
 | `heading_number` | bool | `true` | H1〜H4の見出し自動採番を有効化（1., 1.1., 1.1.1., 1.1.1.1.） |
 | `sheet_name` | string | `Sheet1` | 入力が1件の場合の出力シート名 |
 | `table_merge_threshold` | int | `80` | 幅の広いテーブル列を2つのExcel列に結合するためのバイト閾値 |
+| `secrets` | string | （なし） | `{{secret:NAME}}` に差し込む値を書いたYAMLファイル（[秘密値の差し込み](#秘密値の差し込み)を参照） |
 | `heading_font_size.h1` | float | `24` | H1見出しのフォントサイズ（pt） |
 | `heading_font_size.h2` | float | `20` | H2見出しのフォントサイズ（pt） |
 | `heading_font_size.h3` | float | `16` | H3見出しのフォントサイズ（pt） |

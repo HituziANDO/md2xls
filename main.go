@@ -3,9 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"unicode/utf16"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/HituziANDO/md2xls/internal/parser"
 	"github.com/HituziANDO/md2xls/internal/reader"
 	"github.com/HituziANDO/md2xls/internal/renderer"
+	"github.com/HituziANDO/md2xls/internal/secrets"
 	"github.com/HituziANDO/md2xls/internal/writer"
 	"github.com/xuri/excelize/v2"
 )
@@ -35,6 +38,9 @@ func run() error {
 	if len(os.Args) > 1 && os.Args[1] == "reverse" {
 		return runReverse(os.Args[2:])
 	}
+	if len(os.Args) > 1 && os.Args[1] == "secrets" {
+		return runSecrets(os.Args[2:])
+	}
 
 	return runForward(os.Args[1:])
 }
@@ -52,6 +58,8 @@ func runForward(args []string) error {
 		dst             string
 		showVer         bool
 		noHeadingNumber bool
+		secretsPath     string
+		maskSecrets     bool
 	)
 
 	fs.StringVar(&cfgPath, "config", ".m2x.yml", "path to configuration file")
@@ -63,6 +71,8 @@ func runForward(args []string) error {
 	fs.BoolVar(&showVer, "version", false, "show version")
 	fs.BoolVar(&showVer, "v", false, "show version (shorthand)")
 	fs.BoolVar(&noHeadingNumber, "no-heading-number", false, "disable heading numbering (1., 1.1., 1.1.1.)")
+	fs.StringVar(&secretsPath, "secrets", "", "YAML file with the values for {{secret:NAME}} (overrides config)")
+	fs.BoolVar(&maskSecrets, "mask-secrets", false, "write *** for every {{secret:NAME}} without reading the secrets file")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -92,25 +102,31 @@ func runForward(args []string) error {
 	if noHeadingNumber {
 		cfg.HeadingNumber = false
 	}
+	if maskSecrets && secretsPath != "" {
+		return fmt.Errorf("--mask-secrets and --secrets cannot be combined")
+	}
+	if secretsPath != "" {
+		cfg.Secrets = secretsPath
+	}
 
 	cfg.Dst, err = excelOutputPath(cfg.Sources[0], cfg.Dst)
 	if err != nil {
 		return err
 	}
 
+	documents, err := parseSources(cfg, maskSecrets)
+	if err != nil {
+		return err
+	}
 	var sheets []renderer.Sheet
 	var names []string
-	for _, source := range cfg.Sources {
-		data, err := os.ReadFile(source)
-		if err != nil {
-			return fmt.Errorf("read source file %q: %w", source, err)
-		}
+	for i, source := range cfg.Sources {
 		name := cfg.SheetName
 		if len(cfg.Sources) > 1 {
 			name = worksheetName(source, names)
 			names = append(names, name)
 		}
-		sheets = append(sheets, renderer.Sheet{Name: name, Source: source, Components: parser.Parse(string(data))})
+		sheets = append(sheets, renderer.Sheet{Name: name, Source: source, Components: documents[i]})
 	}
 	if err := renderer.New(cfg).RenderSheets(sheets); err != nil {
 		return fmt.Errorf("render: %w", err)
@@ -118,6 +134,106 @@ func runForward(args []string) error {
 
 	fmt.Printf("Successfully converted %s → %s\n", strings.Join(cfg.Sources, ", "), cfg.Dst)
 	return nil
+}
+
+// parseSources parses every source and fills in its {{secret:NAME}}
+// references. The values are substituted into the parsed components rather
+// than into the Markdown text, so a value is never read as Markdown syntax
+// and no Markdown with values exists outside this process's memory.
+// Nothing is rendered unless every reference in every source resolves.
+func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
+	type document struct {
+		protected string
+		refs      []secrets.Ref
+	}
+	documents := make([]document, len(cfg.Sources))
+	var problems []string
+	hasRefs := false
+	for i, source := range cfg.Sources {
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return nil, fmt.Errorf("read source file %q: %w", source, err)
+		}
+		protected, refs, malformed, err := secrets.Protect(string(data))
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", source, err)
+		}
+		for _, line := range malformed {
+			problems = append(problems, fmt.Sprintf("%s:%d: malformed secret reference (expected {{secret:NAME}} with letters, digits, '.', '_' or '-')", source, line))
+		}
+		documents[i] = document{protected, refs}
+		hasRefs = hasRefs || len(refs) > 0
+	}
+
+	value := func(string) string { return secrets.Mask }
+	if hasRefs && !mask {
+		store := &secrets.Store{}
+		if cfg.Secrets != "" {
+			var err error
+			if store, err = secrets.Load(cfg.Secrets); err != nil {
+				return nil, err
+			}
+		}
+		for i, doc := range documents {
+			for _, ref := range doc.refs {
+				if _, ok := store.Value(ref.Name); !ok {
+					problems = append(problems, fmt.Sprintf("%s:%d: undefined secret %q", cfg.Sources[i], ref.Line, ref.Name))
+				}
+			}
+		}
+		if cfg.Secrets == "" {
+			problems = append(problems, "no secrets file is given: use --secrets FILE, or secrets in the configuration file")
+		}
+		value = func(name string) string {
+			v, _ := store.Value(name)
+			return v
+		}
+	}
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("secret references cannot be resolved:\n  %s", strings.Join(problems, "\n  "))
+	}
+
+	result := make([][]parser.Component, len(documents))
+	for i, doc := range documents {
+		components := parser.Parse(doc.protected)
+		wrapped := map[int][]string{} // component index -> names in a paragraph
+		for j, comp := range components {
+			if p, ok := comp.(parser.PlainText); ok {
+				wrapped[j] = secrets.Names(p.Text, doc.refs)
+			}
+		}
+		if err := secrets.Expand(components, doc.refs, value); err != nil {
+			return nil, fmt.Errorf("%s: %w", cfg.Sources[i], err)
+		}
+		for j, names := range wrapped {
+			p := components[j].(parser.PlainText)
+			for _, name := range names {
+				if !inOneRow(p, value(name), cfg.MaxNumOfCharactersPerLine) {
+					fmt.Fprintf(os.Stderr, "warning: %s:%d: secret %q is wrapped across rows; reverse conversion may not restore it\n", cfg.Sources[i], p.Line, name)
+				}
+			}
+		}
+		result[i] = components
+	}
+	return result, nil
+}
+
+// inOneRow reports whether the renderer keeps value within one wrapped row
+// of the paragraph. A value divided between rows is not recognized by the
+// reverse conversion.
+func inOneRow(p parser.PlainText, value string, maxChars int) bool {
+	rows := p.SplitPer(maxChars)
+	if slices.ContainsFunc(p.RichText, func(s parser.RichTextSegment) bool { return s.Bold || s.Italic || s.Strike || s.Code }) {
+		rows = nil
+		for _, chunk := range parser.SplitRichTextPer(p.RichText, maxChars) {
+			var row strings.Builder
+			for _, seg := range chunk {
+				row.WriteString(seg.Text)
+			}
+			rows = append(rows, row.String())
+		}
+	}
+	return slices.ContainsFunc(rows, func(row string) bool { return strings.Contains(row, value) })
 }
 
 func worksheetName(source string, used []string) string {
@@ -187,6 +303,7 @@ func runReverse(args []string) error {
 		sheetName            string
 		allSheets            bool
 		splitSheets          bool
+		secretsPath          string
 	)
 
 	fs.StringVar(&cfgPath, "config", ".m2x.yml", "path to configuration file")
@@ -200,6 +317,7 @@ func runReverse(args []string) error {
 	fs.BoolVar(&splitSheets, "split-sheets", false, "write one Markdown file per selected sheet; -d specifies the directory")
 	fs.BoolVar(&allSheets, "all-sheets", false, "convert all worksheets in workbook order")
 	fs.StringVar(&sheetName, "sheet", "", "sheet name to convert")
+	fs.StringVar(&secretsPath, "secrets", "", "YAML file whose values are written back as {{secret:NAME}} (overrides config)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -263,10 +381,34 @@ func runReverse(args []string) error {
 		cfg.SheetName = ""
 	}
 
+	if secretsPath != "" {
+		cfg.Secrets = secretsPath
+	}
+	var reverser *secrets.Reverser
+	if cfg.Secrets != "" {
+		store, err := secrets.Load(cfg.Secrets)
+		if err != nil {
+			return err
+		}
+		var warnings []string
+		reverser, warnings = store.Reverser()
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+		}
+	}
+
 	r := reader.New(cfg, outputDir)
 	sheets, err := r.ReadSheets(cfg.Reverse.Src)
 	if err != nil {
 		return fmt.Errorf("read Excel file %q: %w", cfg.Reverse.Src, err)
+	}
+	if reverser != nil {
+		for _, sheet := range sheets {
+			reverser.ReplaceComponents(sheet.Components)
+			for _, w := range svgSecretWarnings(reverser, sheet.Components, outputDir) {
+				fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+			}
+		}
 	}
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
@@ -299,7 +441,106 @@ func runReverse(args []string) error {
 			return err
 		}
 	}
+	if reverser != nil {
+		counts := reverser.Counts()
+		names := make([]string, 0, len(counts))
+		for name := range counts {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			fmt.Fprintf(os.Stderr, "secret %q: replaced %d time(s)\n", name, counts[name])
+		}
+		if len(names) == 0 {
+			fmt.Fprintln(os.Stderr, "secrets: no value was found in the workbook")
+		}
+	}
 	fmt.Printf("Successfully converted %s → %s\n", cfg.Reverse.Src, cfg.Reverse.Dst)
+	return nil
+}
+
+// svgSecretWarnings names the extracted SVG files that contain secret values.
+// SVG text is not rewritten, so the values stay in those files.
+func svgSecretWarnings(reverser *secrets.Reverser, components []parser.Component, outputDir string) []string {
+	var warnings []string
+	for _, comp := range components {
+		img, ok := comp.(parser.Image)
+		if !ok || !strings.EqualFold(filepath.Ext(img.Path), ".svg") {
+			continue
+		}
+		path := filepath.Join(outputDir, filepath.FromSlash(img.Path))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		// SVG stores text with XML escapes such as &amp;.
+		var names []string
+		for _, text := range []string{string(data), html.UnescapeString(string(data))} {
+			for _, m := range reverser.Find(text) {
+				if !slices.Contains(names, m.Name) {
+					names = append(names, m.Name)
+				}
+			}
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			warnings = append(warnings, fmt.Sprintf("%s contains the value of secret %q; SVG files are not rewritten", path, name))
+		}
+	}
+	return warnings
+}
+
+// runSecrets handles "md2xls secrets check", which a pre-commit hook calls to
+// keep secret values out of committed Markdown.
+func runSecrets(args []string) error {
+	const usage = "usage: md2xls secrets check [-c CONFIG] [--secrets FILE] FILE.md ..."
+	if len(args) == 0 || args[0] != "check" {
+		return fmt.Errorf("%s", usage)
+	}
+	fs := flag.NewFlagSet("secrets check", flag.ExitOnError)
+	var cfgPath, secretsPath string
+	fs.StringVar(&cfgPath, "config", ".m2x.yml", "path to configuration file")
+	fs.StringVar(&cfgPath, "c", ".m2x.yml", "path to configuration file (shorthand)")
+	fs.StringVar(&secretsPath, "secrets", "", "YAML file with the secret values (overrides config)")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if fs.NArg() == 0 {
+		return fmt.Errorf("%s", usage)
+	}
+	if secretsPath == "" {
+		cfg, err := config.Load(cfgPath)
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		secretsPath = cfg.Secrets
+	}
+	if secretsPath == "" {
+		return fmt.Errorf("no secrets file is given: use --secrets FILE, or secrets in the configuration file")
+	}
+	store, err := secrets.Load(secretsPath)
+	if err != nil {
+		return err
+	}
+	reverser, _ := store.Reverser()
+	// "md2xls reverse" escapes characters such as | in table cells.
+	reverser.AddForm(writer.EscapeTableCell)
+
+	found := 0
+	for _, file := range fs.Args() {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return fmt.Errorf("read %q: %w", file, err)
+		}
+		text := string(data)
+		for _, m := range reverser.Find(text) {
+			found++
+			fmt.Printf("%s:%d: %s\n", file, 1+strings.Count(text[:m.Start], "\n"), m.Name)
+		}
+	}
+	if found > 0 {
+		return fmt.Errorf("found %d secret value(s) in the checked files", found)
+	}
 	return nil
 }
 
@@ -352,6 +593,13 @@ sheet_name: Sheet1
 
 # Byte threshold for merging table columns (columns exceeding this are merged across two Excel columns)
 table_merge_threshold: 80
+
+# Optional YAML file with the values for {{secret:NAME}} references.
+# Markdown holds only the names; the values are filled in when Excel is written
+# and turned back into names by "md2xls reverse". Nested keys are joined with
+# "." (password under smtp is smtp.password). Keep this file out of git.
+# Can also be set with the --secrets CLI flag.
+# secrets: secrets.yml
 
 # Heading font sizes (pt) for each level
 heading_font_size:

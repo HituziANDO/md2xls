@@ -33,6 +33,13 @@ sheet_name: Sheet1
 # Byte threshold for merging table columns (columns exceeding this are merged across two Excel columns)
 table_merge_threshold: 80
 
+# Optional YAML file with the values for {{secret:NAME}} references.
+# Markdown holds only the names; the values are filled in when Excel is written
+# and turned back into names by "md2xls reverse". Nested keys are joined with
+# "." (password under smtp is smtp.password). Keep this file out of git.
+# Can also be set with the --secrets CLI flag.
+# secrets: secrets.yml
+
 # Heading font sizes (pt) for each level
 heading_font_size:
   h1: 24

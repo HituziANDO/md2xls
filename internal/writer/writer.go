@@ -135,7 +135,7 @@ func (w *Writer) tableToMarkdown(t parser.Table) string {
 	// Header row
 	buf.WriteString("|")
 	for i, h := range t.Header {
-		text := escapeTableCell(h)
+		text := EscapeTableCell(h)
 		if i < len(t.HeaderRichText) && len(t.HeaderRichText[i]) > 0 {
 			text = richTextToMarkdown(t.HeaderRichText[i], true)
 		}
@@ -162,7 +162,7 @@ func (w *Writer) tableToMarkdown(t parser.Table) string {
 	for rowIdx, row := range t.Data {
 		buf.WriteString("|")
 		for colIdx, cell := range row {
-			text := escapeTableCell(cell)
+			text := EscapeTableCell(cell)
 			if rowIdx < len(t.DataRichText) && colIdx < len(t.DataRichText[rowIdx]) && len(t.DataRichText[rowIdx][colIdx]) > 0 {
 				text = richTextToMarkdown(t.DataRichText[rowIdx][colIdx], true)
 			}
@@ -219,7 +219,7 @@ func richTextToMarkdown(segments []parser.RichTextSegment, tableCell bool) strin
 	for _, seg := range segments {
 		text := seg.Text
 		if tableCell {
-			text = escapeTableCell(text)
+			text = EscapeTableCell(text)
 			if seg.Code {
 				text = strings.ReplaceAll(text, "<br>", "&#10;")
 			}
@@ -263,8 +263,8 @@ func alignmentSeparator(alignment string) string {
 	}
 }
 
-// escapeTableCell escapes pipe characters in table cell content.
-func escapeTableCell(text string) string {
+// EscapeTableCell returns text as it is written inside a Markdown table cell.
+func EscapeTableCell(text string) string {
 	return tableEscapes.Replace(text)
 }
 
