@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/HituziANDO/md2xls/internal/parser"
@@ -51,6 +52,18 @@ const (
 	EscapedPrefix      = `\` + refPrefix
 	literalPlaceholder = placeholderOpen + placeholderClose
 )
+
+// LongestText returns the length, in the UTF-16 units Excel counts, of the
+// longest text that the component puts into one cell.
+func LongestText(comp parser.Component) int {
+	longest := 0
+	measure := func(s string) string {
+		longest = max(longest, len(utf16.Encode([]rune(s))))
+		return s
+	}
+	mapText([]parser.Component{comp}, measure, measure)
+	return longest
+}
 
 // Storable reports whether Excel keeps the value exactly as written.
 func Storable(value string) bool {
@@ -341,6 +354,11 @@ func (s *Store) Reverser() (r *Reverser, warnings []string) {
 	shared := map[string][]string{}
 	for _, name := range names {
 		value := s.values[name]
+		if refRegex.FindString(Reference(name)) != Reference(name) {
+			// The value is still replaced: a reference that fails to convert
+			// is safer than a value left in the Markdown.
+			warnings = append(warnings, fmt.Sprintf("secret %q has a name that {{secret:NAME}} cannot reference; rename it to use letters, digits, '.', '_' or '-'", name))
+		}
 		if utf8.RuneCountInString(value) < MinReverseLength {
 			warnings = append(warnings, fmt.Sprintf("secret %q is shorter than %d characters and is not replaced", name, MinReverseLength))
 			continue
@@ -449,33 +467,9 @@ func EscapeLiterals(markdown string) string {
 // field of the components and counts each replacement that reaches the
 // written Markdown.
 func (r *Reverser) ReplaceComponents(components []parser.Component) {
-	for i, comp := range components {
-		if p, ok := comp.(parser.PlainText); ok {
-			// The reader emits one segment per wrapped worksheet row. Joining
-			// equally formatted neighbours restores a value that was wrapped.
-			p.RichText = mergeSegments(p.RichText)
-			components[i] = p
-		}
-	}
 	mapText(components,
 		func(s string) string { return r.replace(s, true) },
 		func(s string) string { return r.replace(s, false) })
-}
-
-func mergeSegments(segs []parser.RichTextSegment) []parser.RichTextSegment {
-	var merged []parser.RichTextSegment
-	for _, seg := range segs {
-		if n := len(merged); n > 0 {
-			format := merged[n-1]
-			format.Text = seg.Text
-			if format == seg {
-				merged[n-1].Text += seg.Text
-				continue
-			}
-		}
-		merged = append(merged, seg)
-	}
-	return merged
 }
 
 // Counts returns how many times each name replaced a value.

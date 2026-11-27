@@ -220,21 +220,13 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 			return nil, fmt.Errorf("%s: %w", cfg.Sources[i], err)
 		}
 		for j, comp := range components {
-			// A code block or a blockquote is written to one cell, which Excel truncates.
-			block, line := "", 0
-			switch c := comp.(type) {
-			case *parser.Code:
-				block, line = c.Text(), c.Line
-			case parser.Blockquote:
-				block, line = c.Text(), c.Line
-			}
-			if len(utf16.Encode([]rune(block))) > excelize.TotalCellChars {
-				problems = append(problems, fmt.Sprintf("%s:%d: the block with its secret values is longer than the %d characters an Excel cell can hold", cfg.Sources[i], line, excelize.TotalCellChars))
+			if secrets.LongestText(comp) > excelize.TotalCellChars {
+				problems = append(problems, fmt.Sprintf("%s:%d: the text with its secret values is longer than the %d characters an Excel cell can hold", cfg.Sources[i], lineOf(comp), excelize.TotalCellChars))
 			}
 			rows, tooLong := wrapAroundValues(comp, names[j], value, cfg.MaxNumOfCharactersPerLine)
 			for _, name := range tooLong {
-				problems = append(problems, fmt.Sprintf("%s:%d: secret %q is longer than max_num_of_characters_per_line (%d) and does not fit in a paragraph row; put it in a table cell or a code block",
-					cfg.Sources[i], comp.(parser.PlainText).Line, name, cfg.MaxNumOfCharactersPerLine))
+				problems = append(problems, fmt.Sprintf("%s:%d: secret %q does not fit in a paragraph row of max_num_of_characters_per_line (%d), alone or with the values next to it; put it in a table cell or a code block",
+					cfg.Sources[i], lineOf(comp), name, cfg.MaxNumOfCharactersPerLine))
 			}
 			result[i] = append(result[i], rows...)
 		}
@@ -249,7 +241,7 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 // that holds secret values and is longer than a row. Such a paragraph is
 // returned as one component per row, wrapped so that each value stays in one
 // cell: the renderer's own wrapping could divide a value between two rows.
-// tooLong names the values longer than a row.
+// tooLong names the values that cannot stay whole in a row.
 func wrapAroundValues(comp parser.Component, names []string, value func(string) string, maxChars int) (rows []parser.Component, tooLong []string) {
 	p, ok := comp.(parser.PlainText)
 	if !ok || len(names) == 0 || maxChars <= 0 {
@@ -266,11 +258,43 @@ func wrapAroundValues(comp parser.Component, names []string, value func(string) 
 	if len(tooLong) > 0 {
 		return []parser.Component{comp}, tooLong
 	}
-	wrapped, _ := secrets.WrapParagraph(p, values, maxChars)
+	wrapped, ok := secrets.WrapParagraph(p, values, maxChars)
+	if !ok {
+		// Values that touch or overlap are together longer than a row.
+		return []parser.Component{comp}, slices.Compact(slices.Sorted(slices.Values(names)))
+	}
 	for _, row := range wrapped {
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+func lineOf(comp parser.Component) int {
+	switch c := comp.(type) {
+	case parser.H1:
+		return c.Line
+	case parser.H2:
+		return c.Line
+	case parser.H3:
+		return c.Line
+	case parser.H4:
+		return c.Line
+	case parser.H5:
+		return c.Line
+	case parser.H6:
+		return c.Line
+	case parser.PlainText:
+		return c.Line
+	case *parser.Table:
+		return c.Line
+	case *parser.Code:
+		return c.Line
+	case parser.List:
+		return c.Line
+	case parser.Blockquote:
+		return c.Line
+	}
+	return 0
 }
 
 func worksheetName(source string, used []string) string {

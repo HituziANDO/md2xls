@@ -170,6 +170,7 @@ md2xls secrets check [-c CONFIG] [--secrets FILE] FILE.md ...
 
 - Values inside images (PNG, SVG) are not replaced. A reference in an image path or alt text is an error.
 - A reference inside an HTML comment still needs a value, although comments are not written to Excel.
+- A value cannot directly follow a backslash, because the backslash makes the reference literal. Text such as a Windows domain followed by a secret user name needs the backslash inside the value.
 - `secrets check` looks for the value as written in the values file and as `md2xls reverse` writes it in a table cell (for example `|` as `\|`). It does not find a value rewritten in any other way.
 
 ### [Excel to Markdown](./docs/excel_to_markdown.md)

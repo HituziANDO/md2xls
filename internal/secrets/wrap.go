@@ -11,7 +11,8 @@ import (
 // without dividing any of the values. Reverse conversion recognizes a value
 // only when one worksheet cell holds all of it. Like the renderer's own
 // wrapping, a row ends at a space where possible and the space is dropped.
-// ok is false when a value alone is longer than a row.
+// ok is false when values that touch or overlap are together longer than a
+// row.
 func WrapParagraph(p parser.PlainText, values []string, max int) (rows []parser.PlainText, ok bool) {
 	type char struct {
 		r       rune
@@ -27,17 +28,18 @@ func WrapParagraph(p parser.PlainText, values []string, max int) (rows []parser.
 	for i, c := range chars {
 		text[i] = c.r
 	}
-	// inValue marks every character of a value; a row may not start after the
-	// first character of a value.
+	// inValue marks every character of a value. noBreak marks the positions
+	// where a new row would start inside an occurrence of a value: one value
+	// may contain another, so the start of a value is not always safe.
 	inValue := make([]bool, len(text))
-	valueStart := make([]bool, len(text))
+	noBreak := make([]bool, len(text))
 	for _, value := range values {
 		v := []rune(value)
 		for i := 0; len(v) > 0 && i+len(v) <= len(text); i++ {
 			if slices.Equal(text[i:i+len(v)], v) {
-				valueStart[i] = true
 				for j := i; j < i+len(v); j++ {
 					inValue[j] = true
+					noBreak[j] = noBreak[j] || j > i
 				}
 			}
 		}
@@ -80,9 +82,9 @@ func WrapParagraph(p parser.PlainText, values []string, max int) (rows []parser.
 			start = at + 1
 			continue
 		}
-		// No usable space: cut at the row length, or before the value there.
+		// No usable space: cut at the row length, or before the values there.
 		at = end
-		for at > start && inValue[at] && !valueStart[at] {
+		for at > start && noBreak[at] {
 			at--
 		}
 		if at == start {

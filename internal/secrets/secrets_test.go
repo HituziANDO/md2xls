@@ -192,8 +192,7 @@ func TestReverserCountsWrittenTextOnce(t *testing.T) {
 	store := loadYAML(t, "pw: value-1234\n")
 	r, _ := store.Reverser()
 	components := []parser.Component{
-		// A paragraph wrapped over two worksheet rows inside the value.
-		parser.PlainText{Text: "use value-1234 here", RichText: []parser.RichTextSegment{{Text: "use value-"}, {Text: "1234 here"}}},
+		parser.PlainText{Text: "use value-1234 here", RichText: []parser.RichTextSegment{{Text: "use "}, {Text: "value-1234 here", Bold: true}}},
 		&parser.Table{
 			Header: []string{"k"}, HeaderRichText: [][]parser.RichTextSegment{nil},
 			Data:         [][]string{{"value-1234"}},
@@ -203,7 +202,7 @@ func TestReverserCountsWrittenTextOnce(t *testing.T) {
 	}
 	r.ReplaceComponents(components)
 	p := components[0].(parser.PlainText)
-	if p.Text != "use {{secret:pw}} here" || len(p.RichText) != 1 || p.RichText[0].Text != "use {{secret:pw}} here" {
+	if p.Text != "use {{secret:pw}} here" || len(p.RichText) != 2 || p.RichText[1].Text != "{{secret:pw}} here" {
 		t.Errorf("paragraph = %q, %v", p.Text, p.RichText)
 	}
 	table := components[1].(*parser.Table)

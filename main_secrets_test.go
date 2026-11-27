@@ -290,6 +290,40 @@ func TestSecretsAreNotDividedByWrapping(t *testing.T) {
 		t.Error("secrets check found a value in the reversed Markdown")
 	}
 
+	// One value contains another, in a paragraph without spaces and with a link.
+	const url = "postgres://fakeapp:FakePw-7731@db.fake.invalid/prod"
+	writeFiles(t, map[string]string{
+		"nested.md": strings.Repeat("あ", 100) + "{{secret:db.url}}で、単体は{{secret:db.password}}です。\n\n" +
+			"[" + strings.Repeat("い", 100) + "{{secret:db.url}}{{secret:db.password}}](https://example.invalid/)\n",
+		"nested.yml": "db:\n  url: " + url + "\n  password: FakePw-7731\n",
+	})
+	if err := runForward([]string{"--secrets", "nested.yml", "-d", "nested.xlsx", "nested.md"}); err != nil {
+		t.Fatal(err)
+	}
+	f, err = excelize.OpenFile("nested.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole := 0
+	for _, cell := range columnA(t, f) {
+		whole += strings.Count(cell, url)
+	}
+	f.Close()
+	if whole != 2 {
+		t.Errorf("the containing value is whole in %d cells, want 2", whole)
+	}
+	capture(t, func() {
+		err = runReverse([]string{"--secrets", "nested.yml", "-s", "nested.xlsx", "-d", "nested-back.md"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nested, _ := os.ReadFile("nested-back.md")
+	if strings.Count(string(nested), "{{secret:db.url}}") != 2 || strings.Count(string(nested), "{{secret:db.password}}") != 2 ||
+		strings.Contains(string(nested), "fake") || !strings.Contains(string(nested), "](https://example.invalid/)") {
+		t.Error("the nested values were not restored")
+	}
+
 	// A value longer than a row cannot be kept in one cell.
 	writeFiles(t, map[string]string{"long.md": "# T\n\nvalue {{secret:huge}}\n\n| a |\n| --- |\n| {{secret:huge}} |\n"})
 	err = runForward([]string{"--secrets", "values.yml", "-d", "long.xlsx", "long.md"})
@@ -297,6 +331,18 @@ func TestSecretsAreNotDividedByWrapping(t *testing.T) {
 		t.Errorf("expected an error naming long.md:3 only and no value")
 	}
 	if _, statErr := os.Stat("long.xlsx"); !os.IsNotExist(statErr) {
+		t.Error("an Excel file was written")
+	}
+	// Neither can two values that touch and are together longer than a row.
+	writeFiles(t, map[string]string{
+		"pair.md":  strings.Repeat("x", 100) + "{{secret:a}}{{secret:a}}\n",
+		"pair.yml": "a: " + strings.Repeat("Fake1234", 10) + "\n",
+	})
+	err = runForward([]string{"--secrets", "pair.yml", "-d", "pair.xlsx", "pair.md"})
+	if err == nil || !strings.Contains(err.Error(), `pair.md:1: secret "a"`) || strings.Contains(err.Error(), "Fake1234") {
+		t.Error("expected an error naming pair.md:1 and no value")
+	}
+	if _, statErr := os.Stat("pair.xlsx"); !os.IsNotExist(statErr) {
 		t.Error("an Excel file was written")
 	}
 }
@@ -354,13 +400,34 @@ func TestEscapedSecretReference(t *testing.T) {
 	if back, _ := os.ReadFile("only-back.md"); string(back) != "Only \\{{secret:NAME}} here\n" {
 		t.Errorf("round trip without a secrets file = %q", back)
 	}
+	writeFiles(t, map[string]string{"literal.md": strings.ReplaceAll(md, "{{secret:name}}", "text")})
+	if err := runForward([]string{"-d", "literal.xlsx", "literal.md"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runReverse([]string{"-s", "literal.xlsx", "-d", "literal-back.md"}); err != nil {
+		t.Fatal(err)
+	}
+	if back, _ := os.ReadFile("literal-back.md"); string(back) != strings.ReplaceAll(md, "{{secret:name}}", "text") {
+		t.Errorf("round trip of a table and a code block without a secrets file = %q", back)
+	}
+}
+
+// README.md is the default input of this repository's .m2x.yml and explains
+// the notation, so it must convert without a secrets file.
+func TestRepositoryReadmeConverts(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "README.xlsx")
+	var err error
+	capture(t, func() { err = runForward([]string{"-d", dst}) })
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSecretValuesThatExcelCannotKeep(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFiles(t, map[string]string{
 		"doc.md":   "{{secret:empty}}\n{{secret:null}}\n{{secret:control}}\n{{secret:escape}}\n{{secret:ok}}\n\n| a |\n| --- |\n| {{secret:huge}} |\n",
-		"block.md": "# T\n\n```\n{{secret:half}}\n{{secret:half}}\n```\n",
+		"block.md": "# T\n\n```\n{{secret:half}}\n{{secret:half}}\n```\n\n- {{secret:half}}{{secret:half}}\n\n| a |\n| --- |\n| {{secret:half}}{{secret:half}} |\n\n## {{secret:half}}{{secret:half}}\n",
 		"values.yml": "empty: ''\nnull:\ncontrol: \"Fake\\x01Value\"\nescape: Fake_x000D_Value\nok: \"Fake\\tValue\\nLine\"\n" +
 			"huge: " + strings.Repeat("Q", 32768) + "\nhalf: " + strings.Repeat("h", 20000) + "\n",
 	})
@@ -384,10 +451,15 @@ func TestSecretValuesThatExcelCannotKeep(t *testing.T) {
 		t.Error("an Excel file was written")
 	}
 
-	// Two values that fit a cell on their own, but not together in one code block.
+	// Two values that fit a cell on their own, but not together.
 	err = runForward([]string{"--secrets", "values.yml", "-d", "block.xlsx", "block.md"})
-	if err == nil || !strings.Contains(err.Error(), "block.md:3: the block with its secret values is longer than") || strings.Contains(err.Error(), "hhhh") {
-		t.Error("expected an error naming block.md:3 and no value")
+	if err == nil || strings.Contains(err.Error(), "hhhh") {
+		t.Fatal("expected an error without a value")
+	}
+	for _, line := range []string{"3", "8", "10", "14"} {
+		if !strings.Contains(err.Error(), "block.md:"+line+": the text with its secret values is longer than") {
+			t.Errorf("the error does not name block.md:%s", line)
+		}
 	}
 	if _, statErr := os.Stat("block.xlsx"); !os.IsNotExist(statErr) {
 		t.Error("an Excel file was written")
