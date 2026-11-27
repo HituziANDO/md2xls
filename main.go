@@ -18,7 +18,7 @@ import (
 )
 
 // Set by goreleaser via ldflags.
-var version = "1.3.0"
+var version = "1.4.0"
 
 func main() {
 	if err := run(); err != nil {
