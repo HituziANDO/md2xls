@@ -409,22 +409,40 @@ func (r *Reverser) Find(text string) []Match {
 	return matches
 }
 
-// replace writes references for the values in text. A "{{secret:" already in
-// the text is escaped, so that converting the Markdown to Excel again keeps
-// it as text instead of reading it as a reference.
+// replace writes references for the values in text, and marks a "{{secret:"
+// that is already in the text as literal.
 func (r *Reverser) replace(text string, count bool) string {
 	var b strings.Builder
 	last := 0
 	for _, m := range r.Find(text) {
-		b.WriteString(strings.ReplaceAll(text[last:m.Start], refPrefix, EscapedPrefix))
+		b.WriteString(markLiteral(text[last:m.Start]))
 		b.WriteString(Reference(m.Name))
 		last = m.End
 		if count {
 			r.counts[m.Name]++
 		}
 	}
-	b.WriteString(strings.ReplaceAll(text[last:], refPrefix, EscapedPrefix))
+	b.WriteString(markLiteral(text[last:]))
 	return b.String()
+}
+
+func markLiteral(text string) string {
+	return strings.ReplaceAll(text, refPrefix, literalPlaceholder)
+}
+
+// MarkLiterals marks every "{{secret:" read from a workbook as literal text.
+// EscapeLiterals turns the marks into backslash escapes once the Markdown is
+// written: the backslash cannot be added here, because the Markdown writer
+// would escape it again inside table cells. Without the escape, converting
+// the Markdown to Excel again would read the text as a reference.
+func MarkLiterals(components []parser.Component) {
+	mapText(components, markLiteral, markLiteral)
+}
+
+// EscapeLiterals writes the marks left by MarkLiterals or ReplaceComponents
+// as "\{{secret:" in the finished Markdown.
+func EscapeLiterals(markdown string) string {
+	return strings.ReplaceAll(markdown, literalPlaceholder, EscapedPrefix)
 }
 
 // ReplaceComponents replaces secret values with references in every text

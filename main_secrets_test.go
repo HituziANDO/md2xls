@@ -234,7 +234,10 @@ func TestSecretsAreNotDividedByWrapping(t *testing.T) {
 	const spaced = "Fake spaced value 4455"
 	md := "The token for the staging environment of the mail relay service used by the nightly batch jobs is currently **{{secret:tok}}** (rotate monthly).\n\n" +
 		strings.Repeat("x", 110) + "{{secret:tok}}" + strings.Repeat("y", 30) + "\n\n" +
-		"The second value sits where the row would otherwise end, after enough words to reach that place: {{secret:spaced}} and more.\n"
+		"The second value sits where the row would otherwise end, after enough words to reach that place: {{secret:spaced}} and more.\n\n" +
+		// The same value twice in one paragraph: the first fits, the second meets the end of the row.
+		"{{secret:tok}}" + strings.Repeat("あ", 85) + "{{secret:tok}}" + strings.Repeat("い", 30) + "。\n\n" +
+		"{{secret:spaced}} " + strings.Repeat("filler ", 12) + "then {{secret:spaced}} again and {{secret:spaced}} " + strings.Repeat("more ", 20) + "{{secret:spaced}}\n"
 	writeFiles(t, map[string]string{"doc.md": md, "values.yml": "tok: " + token + "\nspaced: " + spaced + "\nhuge: " + strings.Repeat("Z", 121) + "\n"})
 	var err error
 	_, stderr := capture(t, func() {
@@ -252,7 +255,7 @@ func TestSecretsAreNotDividedByWrapping(t *testing.T) {
 	}
 	cells := columnA(t, f)
 	f.Close()
-	for name, want := range map[string]int{token: 2, spaced: 1} {
+	for name, want := range map[string]int{token: 4, spaced: 5} {
 		whole := 0
 		for _, cell := range cells {
 			whole += strings.Count(cell, name)
@@ -272,7 +275,7 @@ func TestSecretsAreNotDividedByWrapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	back, _ := os.ReadFile("back.md")
-	if strings.Count(string(back), "{{secret:tok}}") != 2 || strings.Count(string(back), "{{secret:spaced}}") != 1 ||
+	if strings.Count(string(back), "{{secret:tok}}") != 4 || strings.Count(string(back), "{{secret:spaced}}") != 5 ||
 		!strings.Contains(string(back), "**{{secret:tok}}**") {
 		t.Error("the references were not restored")
 	}
@@ -300,7 +303,8 @@ func TestSecretsAreNotDividedByWrapping(t *testing.T) {
 
 func TestEscapedSecretReference(t *testing.T) {
 	t.Chdir(t.TempDir())
-	md := "Write `\\{{secret:NAME}}` or \\{{secret:my name}} and {{secret:name}}\n\n```\npassword=\\{{secret:smtp.password}}\n```\n"
+	md := "Write `\\{{secret:NAME}}` or \\{{secret:my name}} and {{secret:name}}\n\n```\npassword=\\{{secret:smtp.password}}\n```\n\n" +
+		"| Flag | Text |\n| :--- | :--- |\n| `\\{{secret:NAME}}` | \\{{secret:a}} and {{secret:name}} |\n"
 	writeFiles(t, map[string]string{"doc.md": md, "only.md": "Only \\{{secret:NAME}} here\n", "values.yml": "name: Fake-Name-8891\n"})
 	if err := runForward([]string{"--secrets", "values.yml", "-d", "doc.xlsx", "doc.md"}); err != nil {
 		t.Fatal(err)
@@ -310,7 +314,7 @@ func TestEscapedSecretReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	for file, want := range map[string][]string{
-		"doc.xlsx":  {"Write {{secret:NAME}} or {{secret:my name}} and Fake-Name-8891", "password={{secret:smtp.password}}"},
+		"doc.xlsx":  {"Write {{secret:NAME}} or {{secret:my name}} and Fake-Name-8891", "password={{secret:smtp.password}}", "Flag", "{{secret:NAME}}"},
 		"only.xlsx": {"Only {{secret:NAME}} here"},
 	} {
 		f, err := excelize.OpenFile(file)
@@ -331,13 +335,34 @@ func TestEscapedSecretReference(t *testing.T) {
 	if back, _ := os.ReadFile("back.md"); string(back) != md {
 		t.Errorf("round trip = %q, want %q", back, md)
 	}
+	f, err := excelize.OpenFile("doc.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := f.GetRows("Sheet1")
+	f.Close()
+	if !slices.ContainsFunc(rows, func(row []string) bool {
+		return len(row) == 2 && row[0] == "{{secret:NAME}}" && row[1] == "{{secret:a}} and Fake-Name-8891"
+	}) {
+		t.Error("the table row does not hold the literal text and the value")
+	}
+	// Without a secrets file the literal text is escaped as well, so the
+	// Markdown converts to Excel again.
+	if err := runReverse([]string{"-s", "only.xlsx", "-d", "only-back.md"}); err != nil {
+		t.Fatal(err)
+	}
+	if back, _ := os.ReadFile("only-back.md"); string(back) != "Only \\{{secret:NAME}} here\n" {
+		t.Errorf("round trip without a secrets file = %q", back)
+	}
 }
 
 func TestSecretValuesThatExcelCannotKeep(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFiles(t, map[string]string{
-		"doc.md":     "{{secret:empty}}\n{{secret:null}}\n{{secret:control}}\n{{secret:escape}}\n{{secret:ok}}\n",
-		"values.yml": "empty: ''\nnull:\ncontrol: \"Fake\\x01Value\"\nescape: Fake_x000D_Value\nok: \"Fake\\tValue\\nLine\"\n",
+		"doc.md":   "{{secret:empty}}\n{{secret:null}}\n{{secret:control}}\n{{secret:escape}}\n{{secret:ok}}\n\n| a |\n| --- |\n| {{secret:huge}} |\n",
+		"block.md": "# T\n\n```\n{{secret:half}}\n{{secret:half}}\n```\n",
+		"values.yml": "empty: ''\nnull:\ncontrol: \"Fake\\x01Value\"\nescape: Fake_x000D_Value\nok: \"Fake\\tValue\\nLine\"\n" +
+			"huge: " + strings.Repeat("Q", 32768) + "\nhalf: " + strings.Repeat("h", 20000) + "\n",
 	})
 	err := runForward([]string{"--secrets", "values.yml", "-d", "doc.xlsx", "doc.md"})
 	if err == nil {
@@ -346,15 +371,25 @@ func TestSecretValuesThatExcelCannotKeep(t *testing.T) {
 	for _, want := range []string{
 		`doc.md:1: secret "empty" has an empty value`, `doc.md:2: secret "null" has an empty value`,
 		`doc.md:3: secret "control" contains characters`, `doc.md:4: secret "escape" contains characters`,
+		`doc.md:9: secret "huge" is longer than`,
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error does not contain %q", want)
 		}
 	}
-	if strings.Contains(err.Error(), "doc.md:5") || strings.Contains(err.Error(), "Fake") {
+	if strings.Contains(err.Error(), "doc.md:5") || strings.Contains(err.Error(), "Fake") || strings.Contains(err.Error(), "QQQQ") {
 		t.Error("the error reports a storable value or contains a value")
 	}
 	if _, statErr := os.Stat("doc.xlsx"); !os.IsNotExist(statErr) {
+		t.Error("an Excel file was written")
+	}
+
+	// Two values that fit a cell on their own, but not together in one code block.
+	err = runForward([]string{"--secrets", "values.yml", "-d", "block.xlsx", "block.md"})
+	if err == nil || !strings.Contains(err.Error(), "block.md:3: the block with its secret values is longer than") || strings.Contains(err.Error(), "hhhh") {
+		t.Error("expected an error naming block.md:3 and no value")
+	}
+	if _, statErr := os.Stat("block.xlsx"); !os.IsNotExist(statErr) {
 		t.Error("an Excel file was written")
 	}
 }

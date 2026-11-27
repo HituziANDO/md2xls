@@ -184,6 +184,8 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 					problems = append(problems, fmt.Sprintf("%s:%d: undefined secret %q", cfg.Sources[i], ref.Line, ref.Name))
 				case v == "":
 					problems = append(problems, fmt.Sprintf("%s:%d: secret %q has an empty value", cfg.Sources[i], ref.Line, ref.Name))
+				case len(utf16.Encode([]rune(v))) > excelize.TotalCellChars:
+					problems = append(problems, fmt.Sprintf("%s:%d: secret %q is longer than the %d characters an Excel cell can hold", cfg.Sources[i], ref.Line, ref.Name, excelize.TotalCellChars))
 				case !secrets.Storable(v):
 					problems = append(problems, fmt.Sprintf("%s:%d: secret %q contains characters that Excel cannot store unchanged (control characters or _xHHHH_)", cfg.Sources[i], ref.Line, ref.Name))
 				}
@@ -218,6 +220,17 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 			return nil, fmt.Errorf("%s: %w", cfg.Sources[i], err)
 		}
 		for j, comp := range components {
+			// A code block or a blockquote is written to one cell, which Excel truncates.
+			block, line := "", 0
+			switch c := comp.(type) {
+			case *parser.Code:
+				block, line = c.Text(), c.Line
+			case parser.Blockquote:
+				block, line = c.Text(), c.Line
+			}
+			if len(utf16.Encode([]rune(block))) > excelize.TotalCellChars {
+				problems = append(problems, fmt.Sprintf("%s:%d: the block with its secret values is longer than the %d characters an Excel cell can hold", cfg.Sources[i], line, excelize.TotalCellChars))
+			}
 			rows, tooLong := wrapAroundValues(comp, names[j], value, cfg.MaxNumOfCharactersPerLine)
 			for _, name := range tooLong {
 				problems = append(problems, fmt.Sprintf("%s:%d: secret %q is longer than max_num_of_characters_per_line (%d) and does not fit in a paragraph row; put it in a table cell or a code block",
@@ -233,25 +246,24 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 }
 
 // wrapAroundValues returns the component unchanged unless it is a paragraph
-// in which the renderer's wrapping would divide a secret value between rows.
-// Such a paragraph is returned as one component per row, wrapped so that each
-// value stays in one cell. tooLong names the values longer than a row.
+// that holds secret values and is longer than a row. Such a paragraph is
+// returned as one component per row, wrapped so that each value stays in one
+// cell: the renderer's own wrapping could divide a value between two rows.
+// tooLong names the values longer than a row.
 func wrapAroundValues(comp parser.Component, names []string, value func(string) string, maxChars int) (rows []parser.Component, tooLong []string) {
 	p, ok := comp.(parser.PlainText)
 	if !ok || len(names) == 0 || maxChars <= 0 {
 		return []parser.Component{comp}, nil
 	}
 	var values []string
-	divided := false
 	for _, name := range names {
 		v := value(name)
 		values = append(values, v)
-		if utf8.RuneCountInString(v) > maxChars {
+		if utf8.RuneCountInString(v) > maxChars && !slices.Contains(tooLong, name) {
 			tooLong = append(tooLong, name)
 		}
-		divided = divided || !inOneRow(p, v, maxChars)
 	}
-	if len(tooLong) > 0 || !divided {
+	if len(tooLong) > 0 {
 		return []parser.Component{comp}, tooLong
 	}
 	wrapped, _ := secrets.WrapParagraph(p, values, maxChars)
@@ -259,23 +271,6 @@ func wrapAroundValues(comp parser.Component, names []string, value func(string) 
 		rows = append(rows, row)
 	}
 	return rows, nil
-}
-
-// inOneRow reports whether the renderer keeps value within one wrapped row
-// of the paragraph.
-func inOneRow(p parser.PlainText, value string, maxChars int) bool {
-	rows := p.SplitPer(maxChars)
-	if slices.ContainsFunc(p.RichText, func(s parser.RichTextSegment) bool { return s.Bold || s.Italic || s.Strike || s.Code }) {
-		rows = nil
-		for _, chunk := range parser.SplitRichTextPer(p.RichText, maxChars) {
-			var row strings.Builder
-			for _, seg := range chunk {
-				row.WriteString(seg.Text)
-			}
-			rows = append(rows, row.String())
-		}
-	}
-	return slices.ContainsFunc(rows, func(row string) bool { return strings.Contains(row, value) })
 }
 
 func worksheetName(source string, used []string) string {
@@ -444,12 +439,14 @@ func runReverse(args []string) error {
 	if err != nil {
 		return fmt.Errorf("read Excel file %q: %w", cfg.Reverse.Src, err)
 	}
-	if reverser != nil {
-		for _, sheet := range sheets {
-			reverser.ReplaceComponents(sheet.Components)
-			for _, w := range svgSecretWarnings(reverser, sheet.Components, outputDir) {
-				fmt.Fprintf(os.Stderr, "warning: %s\n", w)
-			}
+	for _, sheet := range sheets {
+		if reverser == nil {
+			secrets.MarkLiterals(sheet.Components)
+			continue
+		}
+		reverser.ReplaceComponents(sheet.Components)
+		for _, w := range svgSecretWarnings(reverser, sheet.Components, outputDir) {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}
 	}
 
@@ -467,7 +464,7 @@ func runReverse(args []string) error {
 				return ch
 			}, sheet.Name)
 			path := filepath.Join(outputDir, fmt.Sprintf("%03d_%s.md", sheet.Number, name))
-			if err := writeMarkdown(path, w.Write(sheet.Components)); err != nil {
+			if err := writeMarkdown(path, secrets.EscapeLiterals(w.Write(sheet.Components))); err != nil {
 				return err
 			}
 		}
@@ -479,7 +476,7 @@ func runReverse(args []string) error {
 			}
 			blocks = append(blocks, sheet.Components...)
 		}
-		if err := writeMarkdown(cfg.Reverse.Dst, w.Write(blocks)); err != nil {
+		if err := writeMarkdown(cfg.Reverse.Dst, secrets.EscapeLiterals(w.Write(blocks))); err != nil {
 			return err
 		}
 	}

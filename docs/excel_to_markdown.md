@@ -79,7 +79,7 @@ md2xls reverse --secrets secrets.yml -s design.xlsx -d design.md
 - **Short values:** Values shorter than four characters, such as `-` or `993`, are not replaced, because they would match unrelated text. A warning names them, and they stay in the Markdown as values.
 - **Report:** The number of replacements per name is printed to standard error. Warnings and the report contain names, file names, and counts, never a value.
 - **Matching:** Every occurrence of a value in the workbook text becomes a reference, including text that did not come from a reference.
-- **Literal notation:** Text in the workbook that already reads `{{secret:` is written with a backslash (`\{{secret:`), so converting the Markdown to Excel again keeps it as text.
+- **Literal notation:** Text in the workbook that already reads `{{secret:` is written with a backslash (`\{{secret:`), with or without `--secrets`, so converting the Markdown to Excel again keeps it as text.
 
 Limits:
 
