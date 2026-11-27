@@ -858,6 +858,81 @@ func TestSecretsInShapeLabels(t *testing.T) {
 	}
 }
 
+// A value may also be a word in a name, as in {{secret:postgres.password}}.
+func TestSecretsCheckIgnoresNamesOfReferences(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{
+		"values.yml": "db:\n  user: postgres\npostgres:\n  password: Fake-Pg-Pass-01\n",
+		"clean.md":   "user {{secret:db.user}}, password {{secret:postgres.password}}\n",
+		"leak.md":    "user postgres, password {{secret:postgres.password}}\n",
+	})
+	var err error
+	stdout, _ := capture(t, func() { err = runSecrets([]string{"check", "--secrets", "values.yml", "clean.md"}) })
+	if err != nil || stdout != "" {
+		t.Errorf("a file with references only was reported: %v, %q", err, stdout)
+	}
+	stdout, _ = capture(t, func() { err = runSecrets([]string{"check", "--secrets", "values.yml", "leak.md"}) })
+	if err == nil || stdout != "leak.md:1: db.user\n" {
+		t.Errorf("the value outside the reference was not reported once: %q", stdout)
+	}
+}
+
+func TestLookAlikeReferenceWarning(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{"doc.md": "# T\n\nPassword: {{ secret:pw }}\n\nHello {{ user.name }}\n", "values.yml": "pw: Fake-Pass-7788\n"})
+	var err error
+	_, stderr := capture(t, func() { err = runForward([]string{"--secrets", "values.yml", "-d", "doc.xlsx", "doc.md"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(stderr, "warning: doc.md:") != 1 || !strings.Contains(stderr, "warning: doc.md:3: ") {
+		t.Errorf("expected one warning for doc.md:3, got %q", stderr)
+	}
+	f, err := excelize.OpenFile("doc.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if got := columnA(t, f); !slices.Equal(got, []string{"1. T", "Password: {{ secret:pw }}", "Hello {{ user.name }}"}) {
+		t.Errorf("column A = %q", got)
+	}
+}
+
+// Literal notation at the end of a row is not divided, so it survives the
+// round trip in a paragraph without spaces.
+func TestEscapedReferenceIsNotDividedByWrapping(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for _, lead := range []int{105, 110, 113, 118} {
+		md := strings.Repeat("あ", lead) + "\\{{secret:NAME}}を使います。\n"
+		writeFiles(t, map[string]string{"doc.md": md})
+		if err := runForward([]string{"-d", "doc.xlsx", "doc.md"}); err != nil {
+			t.Fatal(err)
+		}
+		f, err := excelize.OpenFile("doc.xlsx")
+		if err != nil {
+			t.Fatal(err)
+		}
+		whole := 0
+		for _, cell := range columnA(t, f) {
+			whole += strings.Count(cell, "{{secret:NAME}}")
+			if len([]rune(cell)) > 120 {
+				t.Errorf("lead %d: a row is longer than 120 characters", lead)
+			}
+		}
+		f.Close()
+		if whole != 1 {
+			t.Errorf("lead %d: the literal notation was divided between rows", lead)
+		}
+		if err := runReverse([]string{"-s", "doc.xlsx", "-d", "back.md"}); err != nil {
+			t.Fatal(err)
+		}
+		// The reader may add a space where the rows are joined, but not inside the notation.
+		if back, _ := os.ReadFile("back.md"); !strings.Contains(string(back), `\{{secret:NAME}}`) {
+			t.Errorf("lead %d: the literal notation did not survive the round trip", lead)
+		}
+	}
+}
+
 func TestSecretsCheckFormsAndEmptyFile(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFiles(t, map[string]string{

@@ -168,7 +168,9 @@ md2xls secrets check [-c CONFIG] [--secrets FILE] FILE.md ...
 
 **Limits**
 
-- Values inside images (PNG, SVG) are not replaced. A reference in an image path or alt text is an error.
+- Values inside images (PNG, SVG) are not replaced. A reference in the path or alt text of a Markdown image (`![alt](path)`) is an error.
+- Text that only resembles a reference, such as `{{ secret:NAME }}` with spaces or `{{Secret:NAME}}`, is left as written, with a warning.
+- A document that contains the private-use characters U+E000 or U+E001 cannot use references or the backslash escape; md2xls reports an error.
 - A reference inside an HTML comment still needs a value, although comments are not written to Excel.
 - A value cannot directly follow a backslash, because the backslash makes the reference literal. Text such as a Windows domain followed by a secret user name needs the backslash inside the value.
 - `secrets check` looks for the value as written in the values file and as `md2xls reverse` writes it in a table cell (for example `|` as `\|`) or in a diagram label. It does not find a value rewritten in any other way. When the values file has no value of four or more characters, it checks nothing and prints a warning.

@@ -79,7 +79,7 @@ md2xls reverse --secrets secrets.yml -s design.xlsx -d design.md
 - **Names:** A name with characters other than letters, digits, `.`, `_`, and `-` cannot be referenced. Its value is still replaced, and a warning asks you to rename it, because the resulting reference does not convert back to Excel.
 - **Short values:** Values shorter than four characters, such as `-` or `993`, are not replaced, because they would match unrelated text. A warning names them, and they stay in the Markdown as values.
 - **Report:** The number of replacements per name is printed to standard error. Warnings and the report contain names, file names, and counts, never a value.
-- **Matching:** Every occurrence of a value in the workbook text becomes a reference, including text that did not come from a reference. This covers cell text, labels of shapes in diagrams, and the alt text of images.
+- **Matching:** Every occurrence of a value in the workbook text becomes a reference, including text that did not come from a reference. This covers cell text, labels of shapes in diagrams, and the alt text of images. Sheet names, which become headings and file names, are not replaced.
 - **Literal notation:** Text in the workbook that already reads `{{secret:` is written with a backslash (`\{{secret:`), with or without `--secrets`, so converting the Markdown to Excel again keeps it as text.
 
 Limits:
@@ -87,7 +87,7 @@ Limits:
 - Values inside images are not replaced. If an extracted SVG contains a value, a warning names the file and the secret; the SVG is left unchanged. A value in a label that the SVG wraps over several lines, and values inside PNG and other bitmap images, are not detected.
 - A value is recognized only when one cell holds all of it. Excel export never divides a value between rows; a value divided by hand in Excel stays in the Markdown.
 - A value right after a backslash (for example a Windows domain and a user name) is replaced, with a warning: converting that Markdown to Excel again reads the reference as literal text.
-- A paragraph that consists of a value starting like a list item or a numbered heading (for example `1. text`) is read as that element, and the value stays in the Markdown.
+- A paragraph or heading that consists of a value starting like a list item or a numbered heading (for example `1. text`) is read as that element, and the value stays in the Markdown.
 - A value that was edited in Excel no longer matches and stays in the Markdown. Run `md2xls secrets check` on the result before committing.
 
 ## Conversion limits

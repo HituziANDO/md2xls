@@ -73,6 +73,32 @@ func TestLoadErrorsOmitContent(t *testing.T) {
 	}
 }
 
+func TestLookAlikes(t *testing.T) {
+	text := "{{ secret:a }} is not one\n{{secret:a}} and \\{{secret:b}} are fine\n{{Secret:a}}\n{{ user.name }} and {{secrets}}\n\\{{ secret:a }} is escaped\n{{secret :a}}"
+	if got := LookAlikes(text); !slices.Equal(got, []int{1, 3, 6}) {
+		t.Errorf("LookAlikes = %v, want [1 3 6]", got)
+	}
+}
+
+func TestMaskReferences(t *testing.T) {
+	store := loadYAML(t, "db:\n  user: postgres\npostgres:\n  password: Fake-Pg-Pass-01\n")
+	r, _ := store.Reverser()
+	text := "user {{secret:db.user}}, password {{secret:postgres.password}}\nundefined {{secret:postgres.other}} and plain postgres\n"
+	masked := store.MaskReferences(text)
+	if len(masked) != len(text) || strings.Count(masked, "\n") != 2 {
+		t.Fatal("masking changed the offsets")
+	}
+	var found []int
+	for _, m := range r.Find(masked) {
+		found = append(found, m.Start)
+	}
+	// The name of a defined reference is not a leak; other text still is.
+	want := []int{strings.Index(text, "postgres.other"), strings.LastIndex(text, "postgres")}
+	if !slices.Equal(found, want) {
+		t.Errorf("matches at %v, want %v", found, want)
+	}
+}
+
 func TestLoadAcceptsDocumentMarkers(t *testing.T) {
 	for _, content := range []string{"---\na: one-value\n", "a: one-value\n...\n", "a: one-value\n---\n", "a: one-value\n---\n# end\n---\n"} {
 		if v, ok := loadYAML(t, content).Value("a"); !ok || v != "one-value" {

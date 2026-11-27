@@ -160,6 +160,9 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", source, err)
 		}
+		for _, line := range secrets.LookAlikes(string(data)) {
+			fmt.Fprintf(os.Stderr, "warning: %s:%d: text such as \"{{ secret:\" is not a secret reference and is left as written; a reference is {{secret:NAME}}, in lower case and without spaces\n", source, line)
+		}
 		for _, line := range malformed {
 			problems = append(problems, fmt.Sprintf("%s:%d: malformed secret reference (expected {{secret:NAME}} with letters, digits, '.', '_' or '-')", source, line))
 		}
@@ -243,16 +246,25 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 const cellPrefixAllowance = 100
 
 // wrapAroundValues returns the component unchanged unless it is a paragraph
-// that holds secret values and is longer than a row. Such a paragraph is
-// returned as one component per row, wrapped so that each value stays in one
-// cell: the renderer's own wrapping could divide a value between two rows.
+// that holds secret values, or literal reference notation, and is longer
+// than a row. Such a paragraph is returned as one component per row, wrapped
+// so that each value stays in one cell: the renderer's own wrapping could
+// divide a value between two rows, and reverse conversion would then leave
+// it in the Markdown. Literal notation is kept whole for the same round trip.
 // tooLong names the values that cannot stay whole in a row.
 func wrapAroundValues(comp parser.Component, names []string, value func(string) string, maxChars int) (rows []parser.Component, tooLong []string) {
 	p, ok := comp.(parser.PlainText)
-	if !ok || len(names) == 0 || maxChars <= 0 {
+	if !ok || maxChars <= 0 {
 		return []parser.Component{comp}, nil
 	}
-	var values []string
+	var text strings.Builder
+	for _, seg := range p.RichText {
+		text.WriteString(seg.Text)
+	}
+	values := secrets.Literals(text.String())
+	if len(names)+len(values) == 0 || utf8.RuneCountInString(text.String()) <= maxChars {
+		return []parser.Component{comp}, nil
+	}
 	for _, name := range names {
 		v := value(name)
 		values = append(values, v)
@@ -265,7 +277,8 @@ func wrapAroundValues(comp parser.Component, names []string, value func(string) 
 	}
 	wrapped, ok := secrets.WrapParagraph(p, values, maxChars)
 	if !ok {
-		// Values that touch or overlap are together longer than a row.
+		// Values that touch or overlap are together longer than a row. With
+		// no names, only literal notation is too long, which may be divided.
 		return []parser.Component{comp}, slices.Compact(slices.Sorted(slices.Values(names)))
 	}
 	for _, row := range wrapped {
@@ -615,7 +628,7 @@ func runSecrets(args []string) error {
 			return fmt.Errorf("read %q: %w", file, err)
 		}
 		text := string(data)
-		for _, m := range reverser.Find(text) {
+		for _, m := range reverser.Find(store.MaskReferences(text)) {
 			found++
 			fmt.Printf("%s:%d: %s\n", file, 1+strings.Count(text[:m.Start], "\n"), m.Name)
 		}

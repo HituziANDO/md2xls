@@ -46,6 +46,9 @@ var (
 	// Excel stores text as XML: other control characters cannot be written,
 	// a carriage return is read back as a line feed, and _xHHHH_ is read back
 	// as the character with that code.
+	// Text such as "{{ secret:NAME }}" or "{{Secret:NAME}}" that a writer may
+	// take for a reference.
+	lookAlikeRegex  = regexp.MustCompile(`(?i)\\?\{\{\s*secret\s*:`)
 	unstorableRegex = regexp.MustCompile(`[\x00-\x08\x0B-\x1F\x{FFFE}\x{FFFF}]|_x[0-9A-Fa-f]{4}_`)
 )
 
@@ -87,6 +90,39 @@ type Ref struct {
 // Reference returns the Markdown notation for a secret name.
 func Reference(name string) string {
 	return refPrefix + name + "}}"
+}
+
+// LookAlikes returns the lines with text that resembles a reference but is
+// not one, such as "{{ secret:NAME }}". Such text is left as written.
+func LookAlikes(text string) []int {
+	var found []int
+	for i, line := range strings.Split(text, "\n") {
+		for _, m := range lookAlikeRegex.FindAllString(line, -1) {
+			if m != refPrefix && !strings.HasPrefix(m, `\`) {
+				found = append(found, i+1)
+				break
+			}
+		}
+	}
+	return found
+}
+
+// Literals returns the text in the shape of a reference, as "\{{secret:NAME}}"
+// leaves it after Expand.
+func Literals(text string) []string {
+	return refRegex.FindAllString(text, -1)
+}
+
+// MaskReferences blanks the references to names the store defines, keeping
+// every offset. A value that is also part of a name ("postgres" in
+// {{secret:postgres.password}}) is then not taken for a leaked value.
+func (s *Store) MaskReferences(text string) string {
+	return refRegex.ReplaceAllStringFunc(text, func(ref string) string {
+		if _, ok := s.values[refRegex.FindStringSubmatch(ref)[1]]; !ok {
+			return ref
+		}
+		return strings.Repeat("\x00", len(ref))
+	})
 }
 
 // Protect replaces each reference with a placeholder that the Markdown parser
