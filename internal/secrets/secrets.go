@@ -6,9 +6,12 @@
 package secrets
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -270,10 +273,15 @@ func Load(path string) (*Store, error) {
 		}
 		return nil, fmt.Errorf("secrets file %q %s", path, reason)
 	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	var doc, second yaml.Node
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&doc); err != nil && err != io.EOF {
 		// The parser's message can quote the offending text, so drop it.
 		return nil, fmt.Errorf("secrets file %q is not valid YAML", path)
+	}
+	if err := decoder.Decode(&second); err != io.EOF {
+		// Values in a second document would be ignored without notice.
+		return nil, fmt.Errorf("secrets file %q must hold a single YAML document", path)
 	}
 	store := &Store{values: map[string]string{}}
 	if len(doc.Content) == 0 {
@@ -398,7 +406,8 @@ func (s *Store) Reverser() (r *Reverser, warnings []string) {
 // the value does not appear literally (such as an escaped table cell).
 func (r *Reverser) AddForm(form func(value string) string) {
 	for _, e := range r.entries {
-		if rewritten := form(e.value); rewritten != e.value {
+		rewritten := form(e.value)
+		if !slices.ContainsFunc(r.entries, func(known entry) bool { return known.value == rewritten }) {
 			r.entries = append(r.entries, entry{e.name, rewritten})
 		}
 	}
@@ -446,13 +455,14 @@ func (r *Reverser) replace(text string, count bool) string {
 	for _, m := range r.Find(text) {
 		b.WriteString(markLiteral(text[last:m.Start]))
 		b.WriteString(Reference(m.Name))
-		last = m.End
 		if count {
 			r.counts[m.Name]++
-			if strings.HasSuffix(text[:m.Start], `\`) {
+			// A backslash that ends the previous value is replaced with it.
+			if m.Start > last && strings.HasSuffix(text[:m.Start], `\`) {
 				r.afterBackslash[m.Name] = true
 			}
 		}
+		last = m.End
 	}
 	b.WriteString(markLiteral(text[last:]))
 	return b.String()

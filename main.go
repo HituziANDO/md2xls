@@ -456,6 +456,8 @@ func runReverse(args []string) error {
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}
+		// Text in shapes becomes Mermaid labels, which escape characters such as &.
+		reverser.AddForm(reader.EscapeMermaidLabel)
 	}
 
 	r := reader.New(cfg, outputDir)
@@ -591,6 +593,7 @@ func runSecrets(args []string) error {
 	reverser, _ := store.Reverser()
 	// "md2xls reverse" escapes characters such as | in table cells.
 	reverser.AddForm(writer.EscapeTableCell)
+	reverser.AddForm(reader.EscapeMermaidLabel)
 
 	found := 0
 	for _, file := range fs.Args() {

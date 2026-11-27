@@ -134,6 +134,11 @@ type drawingConnector struct {
 	} `xml:"spPr>ln>tailEnd"`
 }
 
+// EscapeMermaidLabel returns text as it is written in a Mermaid node label.
+func EscapeMermaidLabel(text string) string {
+	return mermaidLabel.Replace(text)
+}
+
 var mermaidLabel = strings.NewReplacer("#", "#35;", "&", "#38;", "\"", "#quot;", "<", "#60;", ">", "#62;", "\n", "<br/>")
 
 // Anchor rows are zero-based in DrawingML and one-based in the sheet reader.

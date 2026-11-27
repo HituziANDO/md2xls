@@ -49,6 +49,7 @@ func TestLoadErrorsOmitContent(t *testing.T) {
 		"scalar.yml":    fake + "\n",
 		"duplicate.yml": "db.password: " + fake + "\ndb:\n  password: " + fake + "\n",
 		"cycle.yml":     "a: &x\n  b: *x\n  c: " + fake + "\n",
+		"two.yml":       "a: one-value\n---\nb: " + fake + "\n",
 	} {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -81,9 +82,10 @@ func TestLoadTreatsNullAsEmpty(t *testing.T) {
 }
 
 func TestReverserReportsValuesAfterBackslash(t *testing.T) {
-	store := loadYAML(t, "user: Fake-User-01\nother: Fake-Other-02\n")
+	store := loadYAML(t, "user: Fake-User-01\nother: Fake-Other-02\ndomain: 'FAKEDOM\\'\n")
 	r, _ := store.Reverser()
-	components := []parser.Component{parser.H1{Text: `EXAMPLE\Fake-User-01 and Fake-Other-02`}}
+	// The backslash before the second value belongs to the domain value.
+	components := []parser.Component{parser.H1{Text: `EXAMPLE\Fake-User-01 and FAKEDOM\Fake-Other-02`}}
 	r.ReplaceComponents(components)
 	if got := r.AfterBackslash(); !slices.Equal(got, []string{"user"}) {
 		t.Errorf("AfterBackslash = %v, want [user]", got)
@@ -181,6 +183,21 @@ func TestReverserDoesNotRewriteItsOwnReferences(t *testing.T) {
 	r.ReplaceComponents(components)
 	if got := components[0].(parser.H1).Text; got != "{{secret:c}} {{secret:a}}" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestReverserAddForm(t *testing.T) {
+	store := loadYAML(t, "amp: Fake&Value<1>\nplain: Fake-Plain-01\n")
+	r, _ := store.Reverser()
+	r.AddForm(func(v string) string { return strings.NewReplacer("&", "#38;", "<", "#60;", ">", "#62;").Replace(v) })
+	components := []parser.Component{&parser.Code{Lang: "mermaid", Codes: []string{`n1["Fake#38;Value#60;1#62;"]`, `n2["Fake-Plain-01"]`, `n3["Fake&Value<1>"]`}}}
+	r.ReplaceComponents(components)
+	want := []string{`n1["{{secret:amp}}"]`, `n2["{{secret:plain}}"]`, `n3["{{secret:amp}}"]`}
+	if got := components[0].(*parser.Code).Codes; !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if r.Counts()["amp"] != 2 || r.Counts()["plain"] != 1 {
+		t.Errorf("counts = %v", r.Counts())
 	}
 }
 
