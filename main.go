@@ -220,7 +220,7 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 			return nil, fmt.Errorf("%s: %w", cfg.Sources[i], err)
 		}
 		for j, comp := range components {
-			if secrets.LongestText(comp) > excelize.TotalCellChars {
+			if secrets.LongestText(comp)+cellPrefixAllowance > excelize.TotalCellChars {
 				problems = append(problems, fmt.Sprintf("%s:%d: the text with its secret values is longer than the %d characters an Excel cell can hold", cfg.Sources[i], lineOf(comp), excelize.TotalCellChars))
 			}
 			rows, tooLong := wrapAroundValues(comp, names[j], value, cfg.MaxNumOfCharactersPerLine)
@@ -236,6 +236,11 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 	}
 	return result, nil
 }
+
+// cellPrefixAllowance covers the heading number or the indented list marker
+// that the renderer writes in front of the text. Without it, a text just
+// under Excel's cell limit would be truncated without notice.
+const cellPrefixAllowance = 100
 
 // wrapAroundValues returns the component unchanged unless it is a paragraph
 // that holds secret values and is longer than a row. Such a paragraph is
@@ -591,8 +596,16 @@ func runSecrets(args []string) error {
 		return err
 	}
 	reverser, _ := store.Reverser()
-	// "md2xls reverse" escapes characters such as | in table cells.
+	if reverser.Len() == 0 {
+		fmt.Fprintf(os.Stderr, "warning: secrets file %q has no value of %d or more characters, so nothing is checked\n", secretsPath, secrets.MinReverseLength)
+	}
+	// "md2xls reverse" escapes characters such as | in table cells, writes a
+	// line break in a table cell's inline code as &#10;, and escapes
+	// characters such as & in the Mermaid labels made from shapes.
 	reverser.AddForm(writer.EscapeTableCell)
+	reverser.AddForm(func(value string) string {
+		return strings.ReplaceAll(writer.EscapeTableCell(value), "<br>", "&#10;")
+	})
 	reverser.AddForm(reader.EscapeMermaidLabel)
 
 	found := 0

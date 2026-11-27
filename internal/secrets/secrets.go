@@ -54,6 +54,11 @@ const (
 	// EscapedPrefix written in Markdown produces a literal "{{secret:".
 	EscapedPrefix      = `\` + refPrefix
 	literalPlaceholder = placeholderOpen + placeholderClose
+	// reverseLiteralMark stands for a literal "{{secret:" in text read from a
+	// workbook until the Markdown is written. Unlike Markdown sources, a
+	// workbook is not checked for private-use characters, so the mark is
+	// long enough not to occur in one.
+	reverseLiteralMark = placeholderOpen + "md2xls:literal-secret-reference" + placeholderClose
 )
 
 // LongestText returns the length, in the UTF-16 units Excel counts, of the
@@ -252,6 +257,10 @@ func mapText(components []parser.Component, shown, hidden func(string) string) {
 		case parser.Blockquote:
 			c.Lines = lines(c.Lines)
 			components[i] = c
+		case parser.Image:
+			// The path names a file and is left alone.
+			c.Alt = shown(c.Alt)
+			components[i] = c
 		}
 	}
 }
@@ -273,21 +282,35 @@ func Load(path string) (*Store, error) {
 		}
 		return nil, fmt.Errorf("secrets file %q %s", path, reason)
 	}
-	var doc, second yaml.Node
+	var doc yaml.Node
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	if err := decoder.Decode(&doc); err != nil && err != io.EOF {
 		// The parser's message can quote the offending text, so drop it.
 		return nil, fmt.Errorf("secrets file %q is not valid YAML", path)
 	}
-	if err := decoder.Decode(&second); err != io.EOF {
-		// Values in a second document would be ignored without notice.
-		return nil, fmt.Errorf("secrets file %q must hold a single YAML document", path)
+	for {
+		var next yaml.Node
+		err := decoder.Decode(&next)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("secrets file %q is not valid YAML", path)
+		}
+		// A trailing "---" starts an empty document, which holds nothing.
+		if len(next.Content) > 0 && next.Content[0].Tag != "!!null" {
+			// Values in a second document would be ignored without notice.
+			return nil, fmt.Errorf("secrets file %q must hold a single YAML document", path)
+		}
 	}
 	store := &Store{values: map[string]string{}}
 	if len(doc.Content) == 0 {
 		return store, nil
 	}
 	root := resolveAlias(doc.Content[0])
+	if root.Tag == "!!null" {
+		return store, nil
+	}
 	if root.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("secrets file %q must be a YAML mapping of names to values", path)
 	}
@@ -469,7 +492,7 @@ func (r *Reverser) replace(text string, count bool) string {
 }
 
 func markLiteral(text string) string {
-	return strings.ReplaceAll(text, refPrefix, literalPlaceholder)
+	return strings.ReplaceAll(text, refPrefix, reverseLiteralMark)
 }
 
 // MarkLiterals marks every "{{secret:" read from a workbook as literal text.
@@ -484,7 +507,7 @@ func MarkLiterals(components []parser.Component) {
 // EscapeLiterals writes the marks left by MarkLiterals or ReplaceComponents
 // as "\{{secret:" in the finished Markdown.
 func EscapeLiterals(markdown string) string {
-	return strings.ReplaceAll(markdown, literalPlaceholder, EscapedPrefix)
+	return strings.ReplaceAll(markdown, reverseLiteralMark, EscapedPrefix)
 }
 
 // ReplaceComponents replaces secret values with references in every text
@@ -494,6 +517,11 @@ func (r *Reverser) ReplaceComponents(components []parser.Component) {
 	mapText(components,
 		func(s string) string { return r.replace(s, true) },
 		func(s string) string { return r.replace(s, false) })
+}
+
+// Len returns the number of values the Reverser looks for.
+func (r *Reverser) Len() int {
+	return len(r.entries)
 }
 
 // AfterBackslash returns the names that replaced a value right after a

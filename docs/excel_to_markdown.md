@@ -79,7 +79,7 @@ md2xls reverse --secrets secrets.yml -s design.xlsx -d design.md
 - **Names:** A name with characters other than letters, digits, `.`, `_`, and `-` cannot be referenced. Its value is still replaced, and a warning asks you to rename it, because the resulting reference does not convert back to Excel.
 - **Short values:** Values shorter than four characters, such as `-` or `993`, are not replaced, because they would match unrelated text. A warning names them, and they stay in the Markdown as values.
 - **Report:** The number of replacements per name is printed to standard error. Warnings and the report contain names, file names, and counts, never a value.
-- **Matching:** Every occurrence of a value in the workbook text becomes a reference, including text that did not come from a reference.
+- **Matching:** Every occurrence of a value in the workbook text becomes a reference, including text that did not come from a reference. This covers cell text, labels of shapes in diagrams, and the alt text of images.
 - **Literal notation:** Text in the workbook that already reads `{{secret:` is written with a backslash (`\{{secret:`), with or without `--secrets`, so converting the Markdown to Excel again keeps it as text.
 
 Limits:

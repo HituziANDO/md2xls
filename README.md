@@ -150,7 +150,7 @@ md2xls --secrets secrets.yml -s design.md -d design.xlsx
 - **Literal text:** A backslash keeps the text as written: the Markdown `\` followed by `{{`, `secret:NAME`, `}}` produces the reference notation itself in Excel, without the backslash.
 - **Output:** The value reaches the cell unchanged. Characters such as `|`, `*`, `_`, `` ` ``, `<`, and `&` are not read as Markdown, and a value starting with `=` is stored as text, not as a formula. Wrapping and table column widths use the value. The Markdown with values exists only in memory.
 - **Wrapping:** A paragraph is wrapped without dividing a value between rows, so each value stays in one cell. A value longer than `max_num_of_characters_per_line` does not fit in a paragraph row and is an error; put it in a table cell or a code block, which are not wrapped.
-- **Missing values:** If a reference has no value, or no values file is given, md2xls lists every such reference as `FILE:LINE`, writes no Excel file, and exits with a non-zero status. The same applies to a malformed reference such as `\{{secret:my name}}`, an empty value (including an unquoted `null` or `~`), and a value that Excel cannot store unchanged (control characters, text of the form `_xHHHH_`, or more than 32,767 characters in one cell).
+- **Missing values:** If a reference has no value, or no values file is given, md2xls lists every such reference as `FILE:LINE`, writes no Excel file, and exits with a non-zero status. The same applies to a malformed reference such as `\{{secret:my name}}`, an empty value (including an unquoted `null` or `~`), and a value that Excel cannot store unchanged (control characters, text of the form `_xHHHH_`, or text that comes within 100 characters of the 32,767 characters one cell can hold).
 - **Masked copy:** `--mask-secrets` writes `***` for every reference without reading the values file. It cannot be combined with `--secrets`.
 - **Back to Markdown:** `md2xls reverse --secrets FILE` turns the values back into references. See [Excel to Markdown](./docs/excel_to_markdown.md#secret-values).
 
@@ -171,7 +171,7 @@ md2xls secrets check [-c CONFIG] [--secrets FILE] FILE.md ...
 - Values inside images (PNG, SVG) are not replaced. A reference in an image path or alt text is an error.
 - A reference inside an HTML comment still needs a value, although comments are not written to Excel.
 - A value cannot directly follow a backslash, because the backslash makes the reference literal. Text such as a Windows domain followed by a secret user name needs the backslash inside the value.
-- `secrets check` looks for the value as written in the values file and as `md2xls reverse` writes it in a table cell (for example `|` as `\|`). It does not find a value rewritten in any other way.
+- `secrets check` looks for the value as written in the values file and as `md2xls reverse` writes it in a table cell (for example `|` as `\|`) or in a diagram label. It does not find a value rewritten in any other way. When the values file has no value of four or more characters, it checks nothing and prints a warning.
 
 ### [Excel to Markdown](./docs/excel_to_markdown.md)
 

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -427,9 +430,10 @@ func TestSecretValuesThatExcelCannotKeep(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFiles(t, map[string]string{
 		"doc.md":   "{{secret:empty}}\n{{secret:null}}\n{{secret:control}}\n{{secret:escape}}\n{{secret:ok}}\n\n| a |\n| --- |\n| {{secret:huge}} |\n",
+		"edge.md":  "# {{secret:edge}}\n\n- {{secret:edge}}\n\n| a |\n| --- |\n| {{secret:fits}} |\n",
 		"block.md": "# T\n\n```\n{{secret:half}}\n{{secret:half}}\n```\n\n- {{secret:half}}{{secret:half}}\n\n| a |\n| --- |\n| {{secret:half}}{{secret:half}} |\n\n## {{secret:half}}{{secret:half}}\n",
 		"values.yml": "empty: ''\nnull:\ncontrol: \"Fake\\x01Value\"\nescape: Fake_x000D_Value\nok: \"Fake\\tValue\\nLine\"\n" +
-			"huge: " + strings.Repeat("Q", 32768) + "\nhalf: " + strings.Repeat("h", 20000) + "\n",
+			"huge: " + strings.Repeat("Q", 32768) + "\nhalf: " + strings.Repeat("h", 20000) + "\nedge: " + strings.Repeat("e", 32766) + "\nfits: " + strings.Repeat("f", 32600) + "\n",
 	})
 	err := runForward([]string{"--secrets", "values.yml", "-d", "doc.xlsx", "doc.md"})
 	if err == nil {
@@ -448,6 +452,16 @@ func TestSecretValuesThatExcelCannotKeep(t *testing.T) {
 		t.Error("the error reports a storable value or contains a value")
 	}
 	if _, statErr := os.Stat("doc.xlsx"); !os.IsNotExist(statErr) {
+		t.Error("an Excel file was written")
+	}
+
+	// The heading number and the list marker count towards the cell limit.
+	err = runForward([]string{"--secrets", "values.yml", "-d", "edge.xlsx", "edge.md"})
+	if err == nil || !strings.Contains(err.Error(), "edge.md:1: the text") || !strings.Contains(err.Error(), "edge.md:3: the text") ||
+		strings.Contains(err.Error(), "edge.md:5") || strings.Contains(err.Error(), "eeee") {
+		t.Error("expected an error naming edge.md:1 and edge.md:3 only, and no value")
+	}
+	if _, statErr := os.Stat("edge.xlsx"); !os.IsNotExist(statErr) {
 		t.Error("an Excel file was written")
 	}
 
@@ -746,6 +760,127 @@ func TestSecretsCheck(t *testing.T) {
 		if _, _, err := run(args...); err == nil {
 			t.Errorf("expected an error for %v", args)
 		}
+	}
+}
+
+// addShapes appends shapes with the given XML-escaped labels to the first
+// drawing of a workbook. Shapes without a picture become a Mermaid diagram.
+func addShapes(t *testing.T, path string, labels ...string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	book, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	w := zip.NewWriter(&out)
+	found := false
+	for _, file := range book.File {
+		r, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		content, err := io.ReadAll(r)
+		r.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if file.Name == "xl/drawings/drawing1.xml" {
+			found = true
+			var shapes strings.Builder
+			for i, label := range labels {
+				fmt.Fprintf(&shapes, `<xdr:oneCellAnchor><xdr:from><xdr:row>40</xdr:row></xdr:from><xdr:sp><xdr:nvSpPr><xdr:cNvPr id="%d"/></xdr:nvSpPr><xdr:txBody><a:p><a:r><a:t>%s</a:t></a:r></a:p></xdr:txBody></xdr:sp></xdr:oneCellAnchor>`, 100+i, label)
+			}
+			content = []byte(strings.Replace(string(content), "</xdr:wsDr>", shapes.String()+"</xdr:wsDr>", 1))
+		}
+		dst, err := w.Create(file.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := dst.Write(content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("the workbook has no drawing")
+	}
+	if err := os.WriteFile(path, out.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSecretsInShapeLabels(t *testing.T) {
+	image, err := os.ReadFile("sample/assets/md2xls.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{
+		"logo.png":   string(image),
+		"doc.md":     "# Diagram\n\n![](logo.png)\n",
+		"values.yml": "amp: 'Fake&Value<1>#x'\nplain: Fake-Plain-01\n",
+	})
+	capture(t, func() {
+		if err := runForward([]string{"-d", "doc.xlsx", "doc.md"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	addShapes(t, "doc.xlsx", "Fake&amp;Value&lt;1&gt;#x", "Fake-Plain-01")
+
+	var err2 error
+	_, stderr := capture(t, func() {
+		err2 = runReverse([]string{"--secrets", "values.yml", "-s", "doc.xlsx", "-d", "with.md", "--image-dir", "img"})
+	})
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	with, _ := os.ReadFile("with.md")
+	if !strings.Contains(string(with), `n100["{{secret:amp}}"]`) || !strings.Contains(string(with), `n101["{{secret:plain}}"]`) || strings.Contains(string(with), "Fake") {
+		t.Error("the values in the shape labels were not replaced")
+	}
+	if !strings.Contains(stderr, `secret "amp": replaced 1 time(s)`) {
+		t.Error("the replacement in a shape label was not counted")
+	}
+
+	// Without --secrets the escaped label stays, and the check must find it.
+	if err := runReverse([]string{"-s", "doc.xlsx", "-d", "without.md", "--image-dir", "img"}); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _ := capture(t, func() { err2 = runSecrets([]string{"check", "--secrets", "values.yml", "with.md", "without.md"}) })
+	if err2 == nil || strings.Count(stdout, "without.md:") != 2 || !strings.Contains(stdout, ": amp\n") || !strings.Contains(stdout, ": plain\n") || strings.Contains(stdout, "with.md") {
+		t.Errorf("secrets check did not report exactly the two labels: %q", stdout)
+	}
+}
+
+func TestSecretsCheckFormsAndEmptyFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{
+		"values.yml": "lines: \"FakeLine1\\nFakeLine2\"\n",
+		"doc.md":     "| a | b |\n| --- | --- |\n| `{{secret:lines}}` | {{secret:lines}} |\n",
+		"empty.yml":  "# nothing yet\npin: '993'\n",
+		"leak.md":    "pin 993 and FakeLine1\n",
+	})
+	if err := runForward([]string{"--secrets", "values.yml", "-d", "doc.xlsx", "doc.md"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runReverse([]string{"-s", "doc.xlsx", "-d", "back.md"}); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	stdout, _ := capture(t, func() { err = runSecrets([]string{"check", "--secrets", "values.yml", "back.md"}) })
+	if err == nil || stdout != "back.md:3: lines\nback.md:3: lines\n" {
+		t.Errorf("the multi-line value in a table row was not found twice: %q", stdout)
+	}
+
+	stdout, stderr := capture(t, func() { err = runSecrets([]string{"check", "--secrets", "empty.yml", "leak.md"}) })
+	if err != nil || stdout != "" || !strings.Contains(stderr, `warning: secrets file "empty.yml" has no value of 4 or more characters`) {
+		t.Errorf("expected a warning and success for a file without checkable values: %v, %q", err, stderr)
 	}
 }
 

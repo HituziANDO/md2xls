@@ -50,6 +50,7 @@ func TestLoadErrorsOmitContent(t *testing.T) {
 		"duplicate.yml": "db.password: " + fake + "\ndb:\n  password: " + fake + "\n",
 		"cycle.yml":     "a: &x\n  b: *x\n  c: " + fake + "\n",
 		"two.yml":       "a: one-value\n---\nb: " + fake + "\n",
+		"three.yml":     "a: one-value\n---\n---\nb: " + fake + "\n",
 	} {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -69,6 +70,45 @@ func TestLoadErrorsOmitContent(t *testing.T) {
 	}
 	if _, err := Load(filepath.Join(dir, "missing.yml")); err == nil || !strings.Contains(err.Error(), "missing.yml") {
 		t.Errorf("missing file: got %v", err)
+	}
+}
+
+func TestLoadAcceptsDocumentMarkers(t *testing.T) {
+	for _, content := range []string{"---\na: one-value\n", "a: one-value\n...\n", "a: one-value\n---\n", "a: one-value\n---\n# end\n---\n"} {
+		if v, ok := loadYAML(t, content).Value("a"); !ok || v != "one-value" {
+			t.Errorf("%q: the value was not read", content)
+		}
+	}
+	for _, content := range []string{"", "# only a comment\n", "---\n"} {
+		if r, _ := loadYAML(t, content).Reverser(); r.Len() != 0 {
+			t.Errorf("%q: expected no values", content)
+		}
+	}
+}
+
+func TestReverserReplacesImageAltText(t *testing.T) {
+	store := loadYAML(t, "user: Fake-User-01\n")
+	r, _ := store.Reverser()
+	components := []parser.Component{parser.Image{Alt: "login Fake-User-01 and {{secret:NAME}}", Path: "images/Fake-User-01.png"}}
+	r.ReplaceComponents(components)
+	img := components[0].(parser.Image)
+	if got := EscapeLiterals(img.Alt); got != `login {{secret:user}} and \{{secret:NAME}}` {
+		t.Errorf("alt = %q", got)
+	}
+	if img.Path != "images/Fake-User-01.png" {
+		t.Errorf("the path changed: %q", img.Path)
+	}
+	if r.Counts()["user"] != 1 {
+		t.Errorf("count = %d, want 1", r.Counts()["user"])
+	}
+}
+
+// Private-use characters already in a workbook are not the literal mark.
+func TestMarkLiteralsLeavesPrivateUseCharacters(t *testing.T) {
+	components := []parser.Component{parser.H1{Text: "icons \uE000\uE001 and {{secret:NAME}}"}}
+	MarkLiterals(components)
+	if got := EscapeLiterals(components[0].(parser.H1).Text); got != "icons \uE000\uE001 and \\{{secret:NAME}}" {
+		t.Errorf("got %q", got)
 	}
 }
 
