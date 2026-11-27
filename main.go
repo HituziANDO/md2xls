@@ -517,6 +517,9 @@ func runReverse(args []string) error {
 		if len(names) == 0 {
 			fmt.Fprintln(os.Stderr, "secrets: no value was found in the workbook")
 		}
+		for _, name := range reverser.AfterBackslash() {
+			fmt.Fprintf(os.Stderr, "warning: secret %q follows a backslash in the workbook; the backslash makes the reference literal when the Markdown is converted to Excel again\n", name)
+		}
 	}
 	fmt.Printf("Successfully converted %s → %s\n", cfg.Reverse.Src, cfg.Reverse.Dst)
 	return nil

@@ -48,6 +48,7 @@ func TestLoadErrorsOmitContent(t *testing.T) {
 		"list.yml":      "db:\n  - " + fake + "\n",
 		"scalar.yml":    fake + "\n",
 		"duplicate.yml": "db.password: " + fake + "\ndb:\n  password: " + fake + "\n",
+		"cycle.yml":     "a: &x\n  b: *x\n  c: " + fake + "\n",
 	} {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -67,6 +68,25 @@ func TestLoadErrorsOmitContent(t *testing.T) {
 	}
 	if _, err := Load(filepath.Join(dir, "missing.yml")); err == nil || !strings.Contains(err.Error(), "missing.yml") {
 		t.Errorf("missing file: got %v", err)
+	}
+}
+
+func TestLoadTreatsNullAsEmpty(t *testing.T) {
+	store := loadYAML(t, "a: null\nb: ~\nc:\nd: \"null\"\ne: '~'\n")
+	for name, want := range map[string]string{"a": "", "b": "", "c": "", "d": "null", "e": "~"} {
+		if got, ok := store.Value(name); !ok || got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestReverserReportsValuesAfterBackslash(t *testing.T) {
+	store := loadYAML(t, "user: Fake-User-01\nother: Fake-Other-02\n")
+	r, _ := store.Reverser()
+	components := []parser.Component{parser.H1{Text: `EXAMPLE\Fake-User-01 and Fake-Other-02`}}
+	r.ReplaceComponents(components)
+	if got := r.AfterBackslash(); !slices.Equal(got, []string{"user"}) {
+		t.Errorf("AfterBackslash = %v, want [user]", got)
 	}
 }
 

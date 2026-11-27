@@ -283,7 +283,7 @@ func Load(path string) (*Store, error) {
 	if root.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("secrets file %q must be a YAML mapping of names to values", path)
 	}
-	if err := store.flatten(root, ""); err != nil {
+	if err := store.flatten(root, "", 0); err != nil {
 		return nil, fmt.Errorf("secrets file %q: %w", path, err)
 	}
 	return store, nil
@@ -296,13 +296,17 @@ func resolveAlias(node *yaml.Node) *yaml.Node {
 	return node
 }
 
-func (s *Store) flatten(mapping *yaml.Node, prefix string) error {
+func (s *Store) flatten(mapping *yaml.Node, prefix string, depth int) error {
+	if depth > 100 {
+		// An alias that refers to its own ancestor never ends.
+		return fmt.Errorf("the mappings are nested too deeply")
+	}
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
 		name := prefix + mapping.Content[i].Value
 		value := resolveAlias(mapping.Content[i+1])
 		switch value.Kind {
 		case yaml.MappingNode:
-			if err := s.flatten(value, name+"."); err != nil {
+			if err := s.flatten(value, name+".", depth+1); err != nil {
 				return err
 			}
 		case yaml.ScalarNode:
@@ -310,6 +314,10 @@ func (s *Store) flatten(mapping *yaml.Node, prefix string) error {
 				return fmt.Errorf("the name %q is defined more than once", name)
 			}
 			s.values[name] = value.Value
+			if value.Tag == "!!null" {
+				// An unquoted null or ~ means "no value", like an empty one.
+				s.values[name] = ""
+			}
 		default:
 			return fmt.Errorf("the value of %q must be a string or a mapping", name)
 		}
@@ -337,6 +345,9 @@ type entry struct {
 type Reverser struct {
 	entries []entry // longest value first
 	counts  map[string]int
+	// afterBackslash holds the names written right after a backslash, where
+	// converting the Markdown to Excel again reads the reference as literal.
+	afterBackslash map[string]bool
 }
 
 // Reverser builds the value-to-name lookup. Values shorter than
@@ -349,7 +360,7 @@ func (s *Store) Reverser() (r *Reverser, warnings []string) {
 	}
 	sort.Strings(names)
 
-	r = &Reverser{counts: map[string]int{}}
+	r = &Reverser{counts: map[string]int{}, afterBackslash: map[string]bool{}}
 	owner := map[string]string{}
 	shared := map[string][]string{}
 	for _, name := range names {
@@ -438,6 +449,9 @@ func (r *Reverser) replace(text string, count bool) string {
 		last = m.End
 		if count {
 			r.counts[m.Name]++
+			if strings.HasSuffix(text[:m.Start], `\`) {
+				r.afterBackslash[m.Name] = true
+			}
 		}
 	}
 	b.WriteString(markLiteral(text[last:]))
@@ -470,6 +484,17 @@ func (r *Reverser) ReplaceComponents(components []parser.Component) {
 	mapText(components,
 		func(s string) string { return r.replace(s, true) },
 		func(s string) string { return r.replace(s, false) })
+}
+
+// AfterBackslash returns the names that replaced a value right after a
+// backslash, in lexical order.
+func (r *Reverser) AfterBackslash() []string {
+	names := make([]string, 0, len(r.afterBackslash))
+	for name := range r.afterBackslash {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Counts returns how many times each name replaced a value.
