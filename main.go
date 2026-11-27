@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/HituziANDO/md2xls/internal/config"
 	"github.com/HituziANDO/md2xls/internal/parser"
@@ -143,6 +144,7 @@ func runForward(args []string) error {
 // Nothing is rendered unless every reference in every source resolves.
 func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 	type document struct {
+		source    string
 		protected string
 		refs      []secrets.Ref
 	}
@@ -161,7 +163,7 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 		for _, line := range malformed {
 			problems = append(problems, fmt.Sprintf("%s:%d: malformed secret reference (expected {{secret:NAME}} with letters, digits, '.', '_' or '-')", source, line))
 		}
-		documents[i] = document{protected, refs}
+		documents[i] = document{string(data), protected, refs}
 		hasRefs = hasRefs || len(refs) > 0
 	}
 
@@ -176,8 +178,14 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 		}
 		for i, doc := range documents {
 			for _, ref := range doc.refs {
-				if _, ok := store.Value(ref.Name); !ok {
+				v, ok := store.Value(ref.Name)
+				switch {
+				case !ok:
 					problems = append(problems, fmt.Sprintf("%s:%d: undefined secret %q", cfg.Sources[i], ref.Line, ref.Name))
+				case v == "":
+					problems = append(problems, fmt.Sprintf("%s:%d: secret %q has an empty value", cfg.Sources[i], ref.Line, ref.Name))
+				case !secrets.Storable(v):
+					problems = append(problems, fmt.Sprintf("%s:%d: secret %q contains characters that Excel cannot store unchanged (control characters or _xHHHH_)", cfg.Sources[i], ref.Line, ref.Name))
 				}
 			}
 		}
@@ -196,31 +204,65 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 	result := make([][]parser.Component, len(documents))
 	for i, doc := range documents {
 		components := parser.Parse(doc.protected)
-		wrapped := map[int][]string{} // component index -> names in a paragraph
+		if doc.protected == doc.source {
+			result[i] = components
+			continue
+		}
+		names := make([][]string, len(components)) // names referenced by each paragraph
 		for j, comp := range components {
 			if p, ok := comp.(parser.PlainText); ok {
-				wrapped[j] = secrets.Names(p.Text, doc.refs)
+				names[j] = secrets.Names(p.Text, doc.refs)
 			}
 		}
 		if err := secrets.Expand(components, doc.refs, value); err != nil {
 			return nil, fmt.Errorf("%s: %w", cfg.Sources[i], err)
 		}
-		for j, names := range wrapped {
-			p := components[j].(parser.PlainText)
-			for _, name := range names {
-				if !inOneRow(p, value(name), cfg.MaxNumOfCharactersPerLine) {
-					fmt.Fprintf(os.Stderr, "warning: %s:%d: secret %q is wrapped across rows; reverse conversion may not restore it\n", cfg.Sources[i], p.Line, name)
-				}
+		for j, comp := range components {
+			rows, tooLong := wrapAroundValues(comp, names[j], value, cfg.MaxNumOfCharactersPerLine)
+			for _, name := range tooLong {
+				problems = append(problems, fmt.Sprintf("%s:%d: secret %q is longer than max_num_of_characters_per_line (%d) and does not fit in a paragraph row; put it in a table cell or a code block",
+					cfg.Sources[i], comp.(parser.PlainText).Line, name, cfg.MaxNumOfCharactersPerLine))
 			}
+			result[i] = append(result[i], rows...)
 		}
-		result[i] = components
+	}
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("secret values cannot be written:\n  %s", strings.Join(problems, "\n  "))
 	}
 	return result, nil
 }
 
+// wrapAroundValues returns the component unchanged unless it is a paragraph
+// in which the renderer's wrapping would divide a secret value between rows.
+// Such a paragraph is returned as one component per row, wrapped so that each
+// value stays in one cell. tooLong names the values longer than a row.
+func wrapAroundValues(comp parser.Component, names []string, value func(string) string, maxChars int) (rows []parser.Component, tooLong []string) {
+	p, ok := comp.(parser.PlainText)
+	if !ok || len(names) == 0 || maxChars <= 0 {
+		return []parser.Component{comp}, nil
+	}
+	var values []string
+	divided := false
+	for _, name := range names {
+		v := value(name)
+		values = append(values, v)
+		if utf8.RuneCountInString(v) > maxChars {
+			tooLong = append(tooLong, name)
+		}
+		divided = divided || !inOneRow(p, v, maxChars)
+	}
+	if len(tooLong) > 0 || !divided {
+		return []parser.Component{comp}, tooLong
+	}
+	wrapped, _ := secrets.WrapParagraph(p, values, maxChars)
+	for _, row := range wrapped {
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
 // inOneRow reports whether the renderer keeps value within one wrapped row
-// of the paragraph. A value divided between rows is not recognized by the
-// reverse conversion.
+// of the paragraph.
 func inOneRow(p parser.PlainText, value string, maxChars int) bool {
 	rows := p.SplitPer(maxChars)
 	if slices.ContainsFunc(p.RichText, func(s parser.RichTextSegment) bool { return s.Bold || s.Italic || s.Strike || s.Code }) {

@@ -34,11 +34,28 @@ const (
 )
 
 var (
-	refRegex         = regexp.MustCompile(`\{\{secret:([A-Za-z0-9._-]+)\}\}`)
-	placeholderRegex = regexp.MustCompile(placeholderOpen + `([0-9]+)` + placeholderClose)
+	refRegex = regexp.MustCompile(`\{\{secret:([A-Za-z0-9._-]+)\}\}`)
+	// The number is an index into the references; without a number the
+	// placeholder stands for an escaped, literal "{{secret:".
+	placeholderRegex = regexp.MustCompile(placeholderOpen + `([0-9]*)` + placeholderClose)
+	numberedRegex    = regexp.MustCompile(placeholderOpen + `[0-9]+` + placeholderClose)
+	// Excel stores text as XML: other control characters cannot be written,
+	// a carriage return is read back as a line feed, and _xHHHH_ is read back
+	// as the character with that code.
+	unstorableRegex = regexp.MustCompile(`[\x00-\x08\x0B-\x1F\x{FFFE}\x{FFFF}]|_x[0-9A-Fa-f]{4}_`)
 )
 
-const refPrefix = "{{secret:"
+const (
+	refPrefix = "{{secret:"
+	// EscapedPrefix written in Markdown produces a literal "{{secret:".
+	EscapedPrefix      = `\` + refPrefix
+	literalPlaceholder = placeholderOpen + placeholderClose
+)
+
+// Storable reports whether Excel keeps the value exactly as written.
+func Storable(value string) bool {
+	return utf8.ValidString(value) && !unstorableRegex.MatchString(value)
+}
 
 // Ref is one {{secret:NAME}} reference in a Markdown source.
 type Ref struct {
@@ -53,8 +70,9 @@ func Reference(name string) string {
 
 // Protect replaces each reference with a placeholder that the Markdown parser
 // treats as ordinary text. Expand later swaps the placeholders in the parsed
-// components for values. malformed lists the lines holding "{{secret:" that
-// is not followed by a valid name and "}}".
+// components for values. "\{{secret:" is kept as a literal "{{secret:".
+// malformed lists the lines holding an unescaped "{{secret:" that is not
+// followed by a valid name and "}}".
 func Protect(text string) (protected string, refs []Ref, malformed []int, err error) {
 	if !strings.Contains(text, refPrefix) {
 		return text, nil, nil, nil
@@ -67,6 +85,7 @@ func Protect(text string) (protected string, refs []Ref, malformed []int, err er
 		if !strings.Contains(line, refPrefix) {
 			continue
 		}
+		line = strings.ReplaceAll(line, EscapedPrefix, literalPlaceholder)
 		lines[i] = refRegex.ReplaceAllStringFunc(line, func(ref string) string {
 			name := refRegex.FindStringSubmatch(ref)[1]
 			refs = append(refs, Ref{Name: name, Line: i + 1})
@@ -80,20 +99,32 @@ func Protect(text string) (protected string, refs []Ref, malformed []int, err er
 }
 
 // Expand replaces the placeholders left by Protect with value(name) in every
-// text field of the parsed components.
+// text field of the parsed components. Call it only for text that Protect
+// changed.
 func Expand(components []parser.Component, refs []Ref, value func(name string) string) error {
-	for _, comp := range components {
-		if img, ok := comp.(parser.Image); ok && (placeholderRegex.MatchString(img.Path) || placeholderRegex.MatchString(img.Alt)) {
+	for i, comp := range components {
+		img, ok := comp.(parser.Image)
+		if !ok {
+			continue
+		}
+		if numberedRegex.MatchString(img.Path) || numberedRegex.MatchString(img.Alt) {
 			// Image paths are printed in load errors, which would expose the value.
 			return fmt.Errorf("line %d: secret references are not supported in images", img.Line)
 		}
+		img.Path = strings.ReplaceAll(img.Path, literalPlaceholder, refPrefix)
+		img.Alt = strings.ReplaceAll(img.Alt, literalPlaceholder, refPrefix)
+		components[i] = img
 	}
 	expand := func(s string) string {
 		if !strings.Contains(s, placeholderOpen) {
 			return s
 		}
 		return placeholderRegex.ReplaceAllStringFunc(s, func(p string) string {
-			i, err := strconv.Atoi(placeholderRegex.FindStringSubmatch(p)[1])
+			number := placeholderRegex.FindStringSubmatch(p)[1]
+			if number == "" {
+				return refPrefix
+			}
+			i, err := strconv.Atoi(number)
 			if err != nil || i >= len(refs) {
 				return p
 			}
@@ -107,7 +138,8 @@ func Expand(components []parser.Component, refs []Ref, value func(name string) s
 // Names returns the names referenced by placeholders in a protected string.
 func Names(protected string, refs []Ref) []string {
 	var names []string
-	for _, m := range placeholderRegex.FindAllStringSubmatch(protected, -1) {
+	for _, m := range numberedRegex.FindAllString(protected, -1) {
+		m := placeholderRegex.FindStringSubmatch(m)
 		if i, err := strconv.Atoi(m[1]); err == nil && i < len(refs) {
 			names = append(names, refs[i].Name)
 		}
@@ -377,22 +409,21 @@ func (r *Reverser) Find(text string) []Match {
 	return matches
 }
 
+// replace writes references for the values in text. A "{{secret:" already in
+// the text is escaped, so that converting the Markdown to Excel again keeps
+// it as text instead of reading it as a reference.
 func (r *Reverser) replace(text string, count bool) string {
-	matches := r.Find(text)
-	if len(matches) == 0 {
-		return text
-	}
 	var b strings.Builder
 	last := 0
-	for _, m := range matches {
-		b.WriteString(text[last:m.Start])
+	for _, m := range r.Find(text) {
+		b.WriteString(strings.ReplaceAll(text[last:m.Start], refPrefix, EscapedPrefix))
 		b.WriteString(Reference(m.Name))
 		last = m.End
 		if count {
 			r.counts[m.Name]++
 		}
 	}
-	b.WriteString(text[last:])
+	b.WriteString(strings.ReplaceAll(text[last:], refPrefix, EscapedPrefix))
 	return b.String()
 }
 

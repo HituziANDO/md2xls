@@ -192,10 +192,10 @@ func TestForwardSecrets(t *testing.T) {
 
 func TestForwardSecretsWrapUsesValueLength(t *testing.T) {
 	t.Chdir(t.TempDir())
-	long := strings.TrimSpace(strings.Repeat("word ", 30)) // 149 characters
 	writeFiles(t, map[string]string{
-		"doc.md":     "{{secret:long}}\n\n| A | B |\n| --- | --- |\n| {{secret:long}} | b |\n",
-		"values.yml": "long: " + long + "\n",
+		// The reference is 16 characters; only the value exceeds the 120-character row.
+		"doc.md":     "start {{secret:words}} end\n\n| A | B |\n| --- | --- |\n| {{secret:words}} | b |\n",
+		"values.yml": "words: " + strings.Repeat("word ", 23) + "tail\nunused: x\n",
 		".m2x.yml":   "secrets: values.yml\ndst: doc.xlsx\nsrc: doc.md\n",
 	})
 	if err := runForward(nil); err != nil {
@@ -206,9 +206,9 @@ func TestForwardSecretsWrapUsesValueLength(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
+	value := strings.Repeat("word ", 23) + "tail" // 119 characters
 	cells := columnA(t, f)
-	// The reference is 15 characters; only the value exceeds the 120-character line.
-	if len(cells) < 2 || cells[0]+" "+cells[1] != long {
+	if len(cells) < 3 || cells[0] != "start" || cells[1] != value || cells[2] != "end" {
 		t.Error("the paragraph was not wrapped by the length of the value")
 	}
 	// A column whose value exceeds table_merge_threshold spans two worksheet columns.
@@ -221,8 +221,160 @@ func TestForwardSecretsWrapUsesValueLength(t *testing.T) {
 		ranges = append(ranges, m.GetStartAxis()+":"+m.GetEndAxis())
 	}
 	slices.Sort(ranges)
-	if !slices.Equal(ranges, []string{"A4:B4", "A5:B5"}) {
+	if !slices.Equal(ranges, []string{"A5:B5", "A6:B6"}) {
 		t.Errorf("the table column was not sized by the value: merged ranges %v", ranges)
+	}
+}
+
+// A value divided between two worksheet rows would not be recognized by the
+// reverse conversion or by "secrets check".
+func TestSecretsAreNotDividedByWrapping(t *testing.T) {
+	t.Chdir(t.TempDir())
+	const token = "FakeToken0123456789abcdef"
+	const spaced = "Fake spaced value 4455"
+	md := "The token for the staging environment of the mail relay service used by the nightly batch jobs is currently **{{secret:tok}}** (rotate monthly).\n\n" +
+		strings.Repeat("x", 110) + "{{secret:tok}}" + strings.Repeat("y", 30) + "\n\n" +
+		"The second value sits where the row would otherwise end, after enough words to reach that place: {{secret:spaced}} and more.\n"
+	writeFiles(t, map[string]string{"doc.md": md, "values.yml": "tok: " + token + "\nspaced: " + spaced + "\nhuge: " + strings.Repeat("Z", 121) + "\n"})
+	var err error
+	_, stderr := capture(t, func() {
+		err = runForward([]string{"--secrets", "values.yml", "-d", "doc.xlsx", "doc.md"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stderr != "" {
+		t.Errorf("unexpected output on stderr: %d bytes", len(stderr))
+	}
+	f, err := excelize.OpenFile("doc.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cells := columnA(t, f)
+	f.Close()
+	for name, want := range map[string]int{token: 2, spaced: 1} {
+		whole := 0
+		for _, cell := range cells {
+			whole += strings.Count(cell, name)
+			if len([]rune(cell)) > 120 {
+				t.Error("a row is longer than max_num_of_characters_per_line")
+			}
+		}
+		if whole != want {
+			t.Errorf("a value is whole in %d cells, want %d", whole, want)
+		}
+	}
+
+	capture(t, func() {
+		err = runReverse([]string{"--secrets", "values.yml", "-s", "doc.xlsx", "-d", "back.md"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, _ := os.ReadFile("back.md")
+	if strings.Count(string(back), "{{secret:tok}}") != 2 || strings.Count(string(back), "{{secret:spaced}}") != 1 ||
+		!strings.Contains(string(back), "**{{secret:tok}}**") {
+		t.Error("the references were not restored")
+	}
+	if strings.Contains(string(back), "Fake") {
+		t.Error("the reversed Markdown still contains part of a value")
+	}
+	if _, _, err := func() (string, string, error) {
+		var err error
+		o, e := capture(t, func() { err = runSecrets([]string{"check", "--secrets", "values.yml", "back.md"}) })
+		return o, e, err
+	}(); err != nil {
+		t.Error("secrets check found a value in the reversed Markdown")
+	}
+
+	// A value longer than a row cannot be kept in one cell.
+	writeFiles(t, map[string]string{"long.md": "# T\n\nvalue {{secret:huge}}\n\n| a |\n| --- |\n| {{secret:huge}} |\n"})
+	err = runForward([]string{"--secrets", "values.yml", "-d", "long.xlsx", "long.md"})
+	if err == nil || !strings.Contains(err.Error(), `long.md:3: secret "huge"`) || strings.Contains(err.Error(), "long.md:7") || strings.Contains(err.Error(), "ZZZZ") {
+		t.Errorf("expected an error naming long.md:3 only and no value")
+	}
+	if _, statErr := os.Stat("long.xlsx"); !os.IsNotExist(statErr) {
+		t.Error("an Excel file was written")
+	}
+}
+
+func TestEscapedSecretReference(t *testing.T) {
+	t.Chdir(t.TempDir())
+	md := "Write `\\{{secret:NAME}}` or \\{{secret:my name}} and {{secret:name}}\n\n```\npassword=\\{{secret:smtp.password}}\n```\n"
+	writeFiles(t, map[string]string{"doc.md": md, "only.md": "Only \\{{secret:NAME}} here\n", "values.yml": "name: Fake-Name-8891\n"})
+	if err := runForward([]string{"--secrets", "values.yml", "-d", "doc.xlsx", "doc.md"}); err != nil {
+		t.Fatal(err)
+	}
+	// Escaped references need no secrets file.
+	if err := runForward([]string{"-d", "only.xlsx", "only.md"}); err != nil {
+		t.Fatal(err)
+	}
+	for file, want := range map[string][]string{
+		"doc.xlsx":  {"Write {{secret:NAME}} or {{secret:my name}} and Fake-Name-8891", "password={{secret:smtp.password}}"},
+		"only.xlsx": {"Only {{secret:NAME}} here"},
+	} {
+		f, err := excelize.OpenFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := columnA(t, f); !slices.Equal(got, want) {
+			t.Errorf("%s: column A = %q, want %q", file, got, want)
+		}
+		f.Close()
+	}
+	// Reverse conversion escapes the literal text again.
+	capture(t, func() {
+		if err := runReverse([]string{"--secrets", "values.yml", "-s", "doc.xlsx", "-d", "back.md"}); err != nil {
+			t.Error(err)
+		}
+	})
+	if back, _ := os.ReadFile("back.md"); string(back) != md {
+		t.Errorf("round trip = %q, want %q", back, md)
+	}
+}
+
+func TestSecretValuesThatExcelCannotKeep(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{
+		"doc.md":     "{{secret:empty}}\n{{secret:null}}\n{{secret:control}}\n{{secret:escape}}\n{{secret:ok}}\n",
+		"values.yml": "empty: ''\nnull:\ncontrol: \"Fake\\x01Value\"\nescape: Fake_x000D_Value\nok: \"Fake\\tValue\\nLine\"\n",
+	})
+	err := runForward([]string{"--secrets", "values.yml", "-d", "doc.xlsx", "doc.md"})
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for _, want := range []string{
+		`doc.md:1: secret "empty" has an empty value`, `doc.md:2: secret "null" has an empty value`,
+		`doc.md:3: secret "control" contains characters`, `doc.md:4: secret "escape" contains characters`,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not contain %q", want)
+		}
+	}
+	if strings.Contains(err.Error(), "doc.md:5") || strings.Contains(err.Error(), "Fake") {
+		t.Error("the error reports a storable value or contains a value")
+	}
+	if _, statErr := os.Stat("doc.xlsx"); !os.IsNotExist(statErr) {
+		t.Error("an Excel file was written")
+	}
+}
+
+// Documents without references must convert as before, whatever they contain.
+func TestForwardWithoutReferencesIgnoresPlaceholderCharacters(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{"doc.md": "![\uE0000\uE001](missing.png)\n\ntext \uE0001\uE001 \uE000\uE001\n"})
+	capture(t, func() {
+		if err := runForward([]string{"-d", "doc.xlsx", "doc.md"}); err != nil {
+			t.Error(err)
+		}
+	})
+	f, err := excelize.OpenFile("doc.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if got := columnA(t, f); !slices.Equal(got, []string{"text \uE0001\uE001 \uE000\uE001"}) {
+		t.Errorf("column A = %q", got)
 	}
 }
 

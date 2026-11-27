@@ -79,11 +79,13 @@ md2xls reverse --secrets secrets.yml -s design.xlsx -d design.md
 - **Short values:** Values shorter than four characters, such as `-` or `993`, are not replaced, because they would match unrelated text. A warning names them, and they stay in the Markdown as values.
 - **Report:** The number of replacements per name is printed to standard error. Warnings and the report contain names, file names, and counts, never a value.
 - **Matching:** Every occurrence of a value in the workbook text becomes a reference, including text that did not come from a reference.
+- **Literal notation:** Text in the workbook that already reads `{{secret:` is written with a backslash (`\{{secret:`), so converting the Markdown to Excel again keeps it as text.
 
 Limits:
 
 - Values inside images are not replaced. If an extracted SVG contains a value, a warning names the file and the secret; the SVG is left unchanged. Values inside PNG and other bitmap images are not detected.
-- A value that Excel export wrapped across worksheet rows may not be recognized. Excel export warns about each such reference. Put long values in a table cell or a code block, which are not wrapped.
+- A value is recognized only when one cell holds all of it. Excel export never divides a value between rows; a value divided by hand in Excel stays in the Markdown.
+- A paragraph that consists of a value starting like a list item or a numbered heading (for example `1. text`) is read as that element, and the value stays in the Markdown.
 - A value that was edited in Excel no longer matches and stays in the Markdown. Run `md2xls secrets check` on the result before committing.
 
 ## Conversion limits
