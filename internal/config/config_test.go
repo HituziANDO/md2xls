@@ -394,3 +394,20 @@ print:
 		})
 	}
 }
+
+func TestLoadSecretsPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(path, []byte("secrets: private/values.yml\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Secrets != "private/values.yml" {
+		t.Errorf("Secrets: got %q, want %q", cfg.Secrets, "private/values.yml")
+	}
+	if DefaultConfig().Secrets != "" {
+		t.Error("Secrets must be unset by default")
+	}
+}

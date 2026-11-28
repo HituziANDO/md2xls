@@ -62,7 +62,9 @@ type Config struct {
 	HeadingFontSize           HeadingFontSize    `yaml:"-"`
 	SheetName                 string             `yaml:"sheet_name"`
 	TableMergeThreshold       int                `yaml:"table_merge_threshold"`
-	Reverse                   ReverseConfig      `yaml:"-"`
+	// Secrets is the path of the YAML file holding {{secret:NAME}} values.
+	Secrets string        `yaml:"secrets"`
+	Reverse ReverseConfig `yaml:"-"`
 }
 
 // A scalar src preserves the original single-file configuration.
@@ -115,6 +117,7 @@ type rawConfig struct {
 	HeadingNumber             *bool   `yaml:"heading_number"`
 	SheetName                 *string `yaml:"sheet_name"`
 	TableMergeThreshold       *int    `yaml:"table_merge_threshold"`
+	Secrets                   *string `yaml:"secrets"`
 	HeadingFontSize           *struct {
 		H1 *float64 `yaml:"h1"`
 		H2 *float64 `yaml:"h2"`
@@ -218,6 +221,9 @@ func Load(path string) (Config, error) {
 	}
 	if raw.TableMergeThreshold != nil {
 		cfg.TableMergeThreshold = *raw.TableMergeThreshold
+	}
+	if raw.Secrets != nil {
+		cfg.Secrets = *raw.Secrets
 	}
 	if raw.HeadingFontSize != nil {
 		if raw.HeadingFontSize.H1 != nil {
