@@ -97,8 +97,8 @@ Put options before positional paths. Use either `-s` (one input) or positional p
 | `--config` | `-c` | `.m2x.yml` | Path to configuration file |
 | `--version` | `-v` | | Show version and exit |
 | `--no-heading-number` | | | Disable heading auto-numbering |
-| `--secrets` | | (from config) | YAML file with the values for `\{{secret:NAME}}` references |
-| `--mask-secrets` | | | Write `***` for every `\{{secret:NAME}}` reference without reading the values file |
+| `--secrets` | | (from config) | YAML file with the values for `{{secret:NAME}}` references |
+| `--mask-secrets` | | | Write `***` for every `{{secret:NAME}}` reference without reading the values file |
 
 CLI flags override the corresponding values in the configuration file. If `-d` names a directory, the workbook uses the first input filename with an `.xlsx` extension.
 
@@ -126,12 +126,10 @@ md2xls -v
 
 Keep passwords and other secret values out of the Markdown: write a name in the document, keep the value in a YAML file outside git, and let md2xls fill in the value when it writes Excel.
 
-> This README is itself converted with md2xls, so every reference below is escaped with a backslash to stay literal. Write your references without the backslash: `{{`, `secret:NAME`, `}}`.
-
 ```markdown
 | Item | Value |
 | --- | --- |
-| SMTP password | \{{secret:smtp.password}} |
+| SMTP password | {{secret:smtp.password}} |
 ```
 
 ```yaml
@@ -144,13 +142,13 @@ smtp:
 md2xls --secrets secrets.yml -s design.md -d design.xlsx
 ```
 
-- **Reference:** `\{{secret:NAME}}`. `NAME` may contain letters, digits, `.`, `_`, and `-`. References work in headings, paragraphs, table cells, lists, blockquotes, code blocks, and inline code, several per line. Other `{{ ... }}` text such as `{{ user.name }}` is left as written.
+- **Reference:** `{{secret:NAME}}`. `NAME` may contain letters, digits, `.`, `_`, and `-`. References work in headings, paragraphs, table cells, lists, blockquotes, code blocks, and inline code, several per line. Other `{{ ... }}` text such as `{{ user.name }}` is left as written.
 - **Values file:** A single YAML document of strings and nested mappings (a list is an error). Nested keys are joined with `.`, so `password` under `smtp` is `smtp.password`. Every value is used as the text written in the file (`0123` stays `0123`). Names that a document does not reference are ignored, so one file can serve several documents.
 - **Where to set it:** `--secrets FILE`, or `secrets: FILE` in `.m2x.yml`. The flag takes precedence.
-- **Literal text:** A backslash keeps the text as written: the Markdown `\` followed by `{{`, `secret:NAME`, `}}` produces the reference notation itself in Excel, without the backslash.
+- **Literal text:** A backslash keeps the text as written: `\{{secret:NAME}}` produces the text `{{secret:NAME}}` in Excel, without the backslash. Use it in a document that explains the notation itself.
 - **Output:** The value reaches the cell unchanged. Characters such as `|`, `*`, `_`, `` ` ``, `<`, and `&` are not read as Markdown, and a value starting with `=` is stored as text, not as a formula. Wrapping and table column widths use the value. The Markdown with values exists only in memory.
 - **Wrapping:** A paragraph is wrapped without dividing a value between rows, so each value stays in one cell. A value longer than `max_num_of_characters_per_line` does not fit in a paragraph row and is an error; put it in a table cell or a code block, which are not wrapped.
-- **Missing values:** If a reference has no value, or no values file is given, md2xls lists every such reference as `FILE:LINE`, writes no Excel file, and exits with a non-zero status. The same applies to a malformed reference such as `\{{secret:my name}}`, an empty value (including an unquoted `null` or `~`), and a value that Excel cannot store unchanged (control characters, text of the form `_xHHHH_`, or text that comes within 100 characters of the 32,767 characters one cell can hold).
+- **Missing values:** If a reference has no value, or no values file is given, md2xls lists every such reference as `FILE:LINE`, writes no Excel file, and exits with a non-zero status. The same applies to a malformed reference such as `{{secret:my name}}`, an empty value (including an unquoted `null` or `~`), and a value that Excel cannot store unchanged (control characters, text of the form `_xHHHH_`, or text that comes within 100 characters of the 32,767 characters one cell can hold).
 - **Masked copy:** `--mask-secrets` writes `***` for every reference without reading the values file. It cannot be combined with `--secrets`.
 - **Back to Markdown:** `md2xls reverse --secrets FILE` turns the values back into references. See [Excel to Markdown](./docs/excel_to_markdown.md#secret-values).
 
@@ -169,7 +167,7 @@ md2xls secrets check [-c CONFIG] [--secrets FILE] FILE.md ...
 **Limits**
 
 - Values inside images (PNG, SVG) are not replaced. A reference in the path or alt text of a Markdown image (`![alt](path)`) is an error.
-- Text that only resembles a reference, with spaces inside the braces or a capital letter in `secret`, is left as written, with a warning.
+- Text that only resembles a reference, such as `{{ secret:NAME }}` (with spaces) or `{{Secret:NAME}}`, is left as written, with a warning.
 - A document that contains the private-use characters U+E000 or U+E001 cannot use references or the backslash escape; md2xls reports an error.
 - A reference inside an HTML comment still needs a value, although comments are not written to Excel.
 - A value cannot directly follow a backslash, because the backslash makes the reference literal. Text such as a Windows domain followed by a secret user name needs the backslash inside the value.
@@ -221,7 +219,7 @@ heading_font_size:
 | `heading_number` | bool | `true` | Enable heading auto-numbering for H1--H4 (1., 1.1., 1.1.1., 1.1.1.1.) |
 | `sheet_name` | string | `Sheet1` | Sheet name for single-file export |
 | `table_merge_threshold` | int | `80` | Byte threshold for merging wide table columns across two Excel columns |
-| `secrets` | string | (none) | YAML file with the values for `\{{secret:NAME}}` references (see [Secret values](#secret-values)) |
+| `secrets` | string | (none) | YAML file with the values for `{{secret:NAME}}` references (see [Secret values](#secret-values)) |
 | `heading_font_size.h1` | float | `24` | Font size (pt) for H1 headings |
 | `heading_font_size.h2` | float | `20` | Font size (pt) for H2 headings |
 | `heading_font_size.h3` | float | `16` | Font size (pt) for H3 headings |

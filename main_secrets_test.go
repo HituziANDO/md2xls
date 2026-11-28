@@ -415,17 +415,6 @@ func TestEscapedSecretReference(t *testing.T) {
 	}
 }
 
-// README.md is the default input of this repository's .m2x.yml and explains
-// the notation, so it must convert without a secrets file.
-func TestRepositoryReadmeConverts(t *testing.T) {
-	dst := filepath.Join(t.TempDir(), "README.xlsx")
-	var err error
-	capture(t, func() { err = runForward([]string{"-d", dst}) })
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestSecretValuesThatExcelCannotKeep(t *testing.T) {
 	t.Chdir(t.TempDir())
 	writeFiles(t, map[string]string{

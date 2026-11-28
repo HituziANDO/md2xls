@@ -2,10 +2,10 @@
 # See https://github.com/HituziANDO/md2xls for full documentation.
 
 # Input Markdown path or ordered list, e.g. src: [cover.md, design.md]
-src: README.md
+src: sample/demo.md
 
 # Output Excel file path
-dst: README.xlsx
+dst: demo.xlsx
 
 # Font settings for body text, headings, tables, and list items
 text:
