@@ -478,7 +478,7 @@ func (s *Store) Reverser() (r *Reverser, warnings []string) {
 		if refRegex.FindString(Reference(name)) != Reference(name) {
 			// The value is still replaced: a reference that fails to convert
 			// is safer than a value left in the Markdown.
-			warnings = append(warnings, fmt.Sprintf("secret %q has a name that {{secret:NAME}} cannot reference; rename it to use letters, digits, '.', '_' or '-'", name))
+			warnings = append(warnings, fmt.Sprintf("secret %q has a name that {{secret:NAME}} cannot reference; rename it to use ASCII letters, digits, '.', '_' or '-'", name))
 		}
 		if utf8.RuneCountInString(value) < MinReverseLength {
 			warnings = append(warnings, fmt.Sprintf("secret %q is shorter than %d characters and is not replaced", name, MinReverseLength))

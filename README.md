@@ -142,7 +142,7 @@ smtp:
 md2xls --secrets secrets.yml -s design.md -d design.xlsx
 ```
 
-- **Reference:** `{{secret:NAME}}`. `NAME` may contain letters, digits, `.`, `_`, and `-`. References work in headings, paragraphs, table cells, lists, blockquotes, code blocks, and inline code, several per line. Other `{{ ... }}` text such as `{{ user.name }}` is left as written.
+- **Reference:** `{{secret:NAME}}`. `NAME` may contain ASCII letters (`A`-`Z`, `a`-`z`), digits, `.`, `_`, and `-`. References work in headings, paragraphs, table cells, lists, blockquotes, code blocks, and inline code, several per line. Other `{{ ... }}` text such as `{{ user.name }}` is left as written.
 - **Values file:** A single YAML document of strings and nested mappings (a list or a merge key `<<` is an error). Nested keys are joined with `.`, so `password` under `smtp` is `smtp.password`. Every value is used as the text written in the file (`0123` stays `0123`). Put a value that starts with `{` in quotes; without them, YAML reads it as a nested mapping. Names that a document does not reference are ignored, so one file can serve several documents.
 - **Where to set it:** `--secrets FILE`, or `secrets: FILE` in `.m2x.yml`. The flag takes precedence.
 - **Literal text:** A backslash keeps the text as written: `\{{secret:NAME}}` produces the text `{{secret:NAME}}` in Excel, without the backslash. Use it in a document that explains the notation itself.

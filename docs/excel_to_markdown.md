@@ -76,10 +76,10 @@ md2xls reverse --secrets secrets.yml -s design.xlsx -d design.md
 
 - **Order:** Longer values are replaced first, so a value that is part of another value does not split it.
 - **Shared values:** When several names have the same value, the first name in lexical order is used and a warning lists the names.
-- **Names:** A name with characters other than letters, digits, `.`, `_`, and `-` cannot be referenced. Its value is still replaced, and a warning asks you to rename it, because the resulting reference does not convert back to Excel.
+- **Names:** A name with characters other than ASCII letters, digits, `.`, `_`, and `-` cannot be referenced. Its value is still replaced, and a warning asks you to rename it, because the resulting reference does not convert back to Excel.
 - **Short values:** Values shorter than four characters, such as `-` or `993`, are not replaced, because they would match unrelated text. A warning names them, and they stay in the Markdown as values.
 - **Report:** The number of replacements per name is printed to standard error. Warnings and the report contain names, file names, and counts, never a value.
-- **Matching:** Every occurrence of a value in the workbook text becomes a reference, including text that did not come from a reference. This covers cell text, labels of shapes in diagrams, and the alt text of images. Sheet names, which become headings and file names, are not replaced.
+- **Matching:** Every occurrence of a value in the workbook text becomes a reference, including text that did not come from a reference. This covers cell text, labels of shapes in diagrams, and the alt text of images. Sheet names, which become headings and file names, are not replaced. Excel export does not accept a reference in an image, so remove a reference written to alt text before converting that Markdown to Excel again.
 - **Literal notation:** Text in the workbook that already reads `{{secret:` is written with a backslash (`\{{secret:`), with or without `--secrets`, so converting the Markdown to Excel again keeps it as text.
 
 Limits:
@@ -87,7 +87,7 @@ Limits:
 - Values inside images are not replaced. If an extracted SVG contains a value, a warning names the file and the secret; the SVG is left unchanged. A value in a label that the SVG wraps over several lines, and values inside PNG and other bitmap images, are not detected.
 - A value is recognized only when one cell holds all of it. Excel export never divides a value that it fills in from a reference. A value written in the Markdown itself can be divided between rows by wrapping, and a value can be divided by hand in Excel; such a value stays in the Markdown in pieces, and `md2xls secrets check` does not find it. When part of a value was formatted in Excel (for example set bold), the value is replaced and the cell is written without its formatting.
 - A value right after a backslash (for example a Windows domain and a user name) is replaced, with a warning: converting that Markdown to Excel again reads the reference as literal text.
-- A paragraph or heading that consists of a value starting like a list item or a numbered heading (for example `1. text`) is read as that element, and the value stays in the Markdown.
+- A paragraph, a row of a wrapped paragraph, or a heading that starts with a value reading like a list item or a heading number (for example `1. text`) is read as that element, and the value stays in the Markdown.
 - When a value ends with white space and a row or a line of the paragraph ends right after it, the space that followed the value is not restored. YAML keeps a final line feed in a value written as `password: |`; write `password: |-` to leave it out.
 - A value that was edited in Excel no longer matches and stays in the Markdown. Run `md2xls secrets check` on the result before committing.
 

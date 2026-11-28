@@ -164,7 +164,7 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 			fmt.Fprintf(os.Stderr, "warning: %s:%d: text such as \"{{ secret:\" is not a secret reference and is left as written; a reference is {{secret:NAME}}, in lower case and without spaces\n", source, line)
 		}
 		for _, line := range malformed {
-			problems = append(problems, fmt.Sprintf("%s:%d: malformed secret reference (expected {{secret:NAME}} with letters, digits, '.', '_' or '-')", source, line))
+			problems = append(problems, fmt.Sprintf("%s:%d: malformed secret reference (expected {{secret:NAME}} with ASCII letters, digits, '.', '_' or '-')", source, line))
 		}
 		documents[i] = document{string(data), protected, refs}
 		hasRefs = hasRefs || len(refs) > 0
