@@ -336,7 +336,9 @@ func TestSecretsAreNotDividedByWrapping(t *testing.T) {
 	if _, statErr := os.Stat("long.xlsx"); !os.IsNotExist(statErr) {
 		t.Error("an Excel file was written")
 	}
-	// Neither can two values that touch and are together longer than a row.
+	// Neither can occurrences that overlap and are together longer than a
+	// row: the value repeats itself, so writing it twice makes its
+	// occurrences overlap from one end to the other.
 	writeFiles(t, map[string]string{
 		"pair.md":  strings.Repeat("x", 100) + "{{secret:a}}{{secret:a}}\n",
 		"pair.yml": "a: " + strings.Repeat("Fake1234", 10) + "\n",
@@ -347,6 +349,37 @@ func TestSecretsAreNotDividedByWrapping(t *testing.T) {
 	}
 	if _, statErr := os.Stat("pair.xlsx"); !os.IsNotExist(statErr) {
 		t.Error("an Excel file was written")
+	}
+
+	// Values that only touch go to separate rows.
+	const apart = "Fake0001Fake0002Fake0003Fake0004Fake0005Fake0006Fake0007Fake0008Fake0009Fake0010"
+	writeFiles(t, map[string]string{"apart.yml": "a: " + apart + "\n"})
+	if err := runForward([]string{"--secrets", "apart.yml", "-d", "apart.xlsx", "pair.md"}); err != nil {
+		t.Fatal("values that touch without overlapping were rejected")
+	}
+	f, err = excelize.OpenFile("apart.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole = 0
+	for _, cell := range columnA(t, f) {
+		if cell == apart {
+			whole++
+		}
+	}
+	f.Close()
+	if whole != 2 {
+		t.Errorf("%d rows hold exactly one value, want 2", whole)
+	}
+
+	// A value in a link target is not written to a row, so its length does
+	// not matter to wrapping.
+	writeFiles(t, map[string]string{
+		"target.md":  "See [" + strings.Repeat("label ", 30) + "end](https://example.invalid/?t={{secret:token}}) now.\n",
+		"target.yml": "token: Fake" + strings.Repeat("J", 196) + "\n",
+	})
+	if err := runForward([]string{"--secrets", "target.yml", "-d", "target.xlsx", "target.md"}); err != nil {
+		t.Error("a long value in a link target was rejected")
 	}
 }
 
@@ -449,6 +482,10 @@ func TestSecretValuesThatExcelCannotKeep(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "edge.md:1: the text") || !strings.Contains(err.Error(), "edge.md:3: the text") ||
 		strings.Contains(err.Error(), "edge.md:5") || strings.Contains(err.Error(), "eeee") {
 		t.Error("expected an error naming edge.md:1 and edge.md:3 only, and no value")
+	}
+	// The message states the limit that is applied, not the cell limit alone.
+	if err != nil && !strings.Contains(err.Error(), "is longer than 32667 characters") {
+		t.Error("the error does not state the applied limit")
 	}
 	if _, statErr := os.Stat("edge.xlsx"); !os.IsNotExist(statErr) {
 		t.Error("an Excel file was written")

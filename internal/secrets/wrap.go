@@ -11,8 +11,8 @@ import (
 // without dividing any of the values. Reverse conversion recognizes a value
 // only when one worksheet cell holds all of it. Like the renderer's own
 // wrapping, a row ends at a space where possible and the space is dropped.
-// ok is false when values that touch or overlap are together longer than a
-// row.
+// ok is false when overlapping occurrences of values are together longer
+// than a row.
 func WrapParagraph(p parser.PlainText, values []string, max int) (rows []parser.PlainText, ok bool) {
 	type char struct {
 		r       rune

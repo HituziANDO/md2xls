@@ -223,11 +223,12 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 		for j, comp := range components {
 			// Text without values keeps the behaviour of documents without references.
 			if len(names[j]) > 0 && secrets.LongestText(comp)+cellPrefixAllowance > excelize.TotalCellChars {
-				problems = append(problems, fmt.Sprintf("%s:%d: the text with its secret values is longer than the %d characters an Excel cell can hold", cfg.Sources[i], lineOf(comp), excelize.TotalCellChars))
+				problems = append(problems, fmt.Sprintf("%s:%d: the text with its secret values is longer than %d characters (the %d an Excel cell can hold, less %d kept for a heading number or a list marker)",
+					cfg.Sources[i], lineOf(comp), excelize.TotalCellChars-cellPrefixAllowance, excelize.TotalCellChars, cellPrefixAllowance))
 			}
 			rows, tooLong := wrapAroundValues(comp, names[j], value, cfg.MaxNumOfCharactersPerLine)
 			for _, name := range tooLong {
-				problems = append(problems, fmt.Sprintf("%s:%d: secret %q does not fit in a paragraph row of max_num_of_characters_per_line (%d), alone or with the values next to it; put it in a table cell or a code block",
+				problems = append(problems, fmt.Sprintf("%s:%d: secret %q does not fit in a paragraph row of max_num_of_characters_per_line (%d), alone or with the occurrences of values that overlap it; put it in a table cell or a code block",
 					cfg.Sources[i], lineOf(comp), name, cfg.MaxNumOfCharactersPerLine))
 			}
 			result[i] = append(result[i], rows...)
@@ -250,7 +251,8 @@ const cellPrefixAllowance = 100
 // so that each value stays in one cell: the renderer's own wrapping could
 // divide a value between two rows, and reverse conversion would then leave
 // it in the Markdown. Literal notation is kept whole for the same round trip.
-// tooLong names the values that cannot stay whole in a row.
+// A value that only a link target holds is not written to a row and does not
+// count. tooLong names the values that cannot stay whole in a row.
 func wrapAroundValues(comp parser.Component, names []string, value func(string) string, maxChars int) (rows []parser.Component, tooLong []string) {
 	p, ok := comp.(parser.PlainText)
 	if !ok || maxChars <= 0 {
@@ -260,13 +262,17 @@ func wrapAroundValues(comp parser.Component, names []string, value func(string) 
 	for _, seg := range p.RichText {
 		text.WriteString(seg.Text)
 	}
-	literals := secrets.Literals(text.String())
-	if len(names)+len(literals) == 0 || utf8.RuneCountInString(text.String()) <= maxChars {
+	if utf8.RuneCountInString(text.String()) <= maxChars {
 		return []parser.Component{comp}, nil
 	}
-	var values []string
+	literals := secrets.Literals(text.String())
+	var inRows, values []string // names and values that the rows hold
 	for _, name := range names {
 		v := value(name)
+		if !strings.Contains(text.String(), v) {
+			continue
+		}
+		inRows = append(inRows, name)
 		values = append(values, v)
 		if utf8.RuneCountInString(v) > maxChars && !slices.Contains(tooLong, name) {
 			tooLong = append(tooLong, name)
@@ -275,17 +281,20 @@ func wrapAroundValues(comp parser.Component, names []string, value func(string) 
 	if len(tooLong) > 0 {
 		return []parser.Component{comp}, tooLong
 	}
+	if len(values)+len(literals) == 0 {
+		return []parser.Component{comp}, nil
+	}
 	wrapped, ok := secrets.WrapParagraph(p, append(literals, values...), maxChars)
 	if !ok {
 		// Literal notation that does not fit may be divided; values may not.
-		if len(names) == 0 {
+		if len(values) == 0 {
 			return []parser.Component{comp}, nil
 		}
 		wrapped, ok = secrets.WrapParagraph(p, values, maxChars)
 	}
 	if !ok {
-		// Values that touch or overlap are together longer than a row.
-		return []parser.Component{comp}, slices.Compact(slices.Sorted(slices.Values(names)))
+		// Overlapping occurrences of values are together longer than a row.
+		return []parser.Component{comp}, slices.Compact(slices.Sorted(slices.Values(inRows)))
 	}
 	for _, row := range wrapped {
 		rows = append(rows, row)
