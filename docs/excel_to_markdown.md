@@ -85,7 +85,7 @@ md2xls reverse --secrets secrets.yml -s design.xlsx -d design.md
 Limits:
 
 - Values inside images are not replaced. If an extracted SVG contains a value, a warning names the file and the secret; the SVG is left unchanged. A value in a label that the SVG wraps over several lines, and values inside PNG and other bitmap images, are not detected.
-- A value is recognized only when one cell holds all of it. Excel export never divides a value between rows; a value divided by hand in Excel stays in the Markdown. When part of a value was formatted in Excel (for example set bold), the value is replaced and the cell is written without its formatting.
+- A value is recognized only when one cell holds all of it. Excel export never divides a value that it fills in from a reference. A value written in the Markdown itself can be divided between rows by wrapping, and a value can be divided by hand in Excel; such a value stays in the Markdown in pieces, and `md2xls secrets check` does not find it. When part of a value was formatted in Excel (for example set bold), the value is replaced and the cell is written without its formatting.
 - A value right after a backslash (for example a Windows domain and a user name) is replaced, with a warning: converting that Markdown to Excel again reads the reference as literal text.
 - A paragraph or heading that consists of a value starting like a list item or a numbered heading (for example `1. text`) is read as that element, and the value stays in the Markdown.
 - When a value ends with white space and a row or a line of the paragraph ends right after it, the space that followed the value is not restored. YAML keeps a final line feed in a value written as `password: |`; write `password: |-` to leave it out.

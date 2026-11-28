@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/HituziANDO/md2xls/internal/config"
 	"github.com/HituziANDO/md2xls/internal/parser"
 	"github.com/HituziANDO/md2xls/internal/secrets"
 	"github.com/HituziANDO/md2xls/internal/writer"
@@ -1068,7 +1069,33 @@ func TestInitTemplateDescribesSecrets(t *testing.T) {
 		t.Error("the generated configuration does not describe secrets")
 	}
 	// The template still loads with secrets left commented out.
-	if err := runForward([]string{"-v"}); err != nil {
-		t.Fatal(err)
+	if cfg, err := config.Load(".m2x.yml"); err != nil || cfg.Secrets != "" {
+		t.Errorf("loading the template: secrets set = %v, error = %v", cfg.Secrets != "", err)
+	}
+}
+
+// Image paths are printed in image-loading messages, so a value must not
+// reach them.
+func TestSecretReferencesInImages(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{
+		"img.md":     "![x]({{secret:a}}.png)\n\ntext {{secret:a}}\n\n![{{secret:a}}](y.png)\n",
+		"values.yml": "a: Fake-Image-Value-01\n",
+	})
+	var err error
+	_, stderr := capture(t, func() { err = runForward([]string{"--secrets", "values.yml", "-d", "img.xlsx", "img.md"}) })
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for _, want := range []string{"img.md:1: ", "img.md:5: "} {
+		if !strings.Contains(err.Error(), want+"secret references are not supported in images") {
+			t.Errorf("the error does not name %s", want)
+		}
+	}
+	if strings.Contains(err.Error(), "img.md:3") || strings.Contains(err.Error()+stderr, "Fake-Image") {
+		t.Error("the error names a line without an image, or a value was printed")
+	}
+	if _, statErr := os.Stat("img.xlsx"); !os.IsNotExist(statErr) {
+		t.Error("an Excel file was written")
 	}
 }

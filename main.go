@@ -217,8 +217,11 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 		for j, comp := range components {
 			names[j] = secrets.NamesIn(comp, doc.refs)
 		}
-		if err := secrets.Expand(components, doc.refs, value); err != nil {
-			return nil, fmt.Errorf("%s: %w", cfg.Sources[i], err)
+		if lines := secrets.Expand(components, doc.refs, value); len(lines) > 0 {
+			for _, line := range lines {
+				problems = append(problems, fmt.Sprintf("%s:%d: secret references are not supported in images", cfg.Sources[i], line))
+			}
+			continue
 		}
 		for j, comp := range components {
 			// Text without values keeps the behaviour of documents without references.

@@ -8,6 +8,7 @@ package secrets
 import (
 	"bytes"
 	"fmt"
+	"html"
 	"io"
 	"os"
 	"regexp"
@@ -141,7 +142,8 @@ func Protect(text string) (protected string, refs []Ref, malformed []int, err er
 	if !strings.Contains(text, refPrefix) {
 		return text, nil, nil, nil
 	}
-	if strings.Contains(text, placeholderOpen) || strings.Contains(text, placeholderClose) {
+	// The parser decodes character references such as "&#xE000;".
+	if decoded := html.UnescapeString(text); strings.Contains(decoded, placeholderOpen) || strings.Contains(decoded, placeholderClose) {
 		return "", nil, nil, fmt.Errorf("the characters U+E000 and U+E001 cannot be used together with secret references")
 	}
 	lines := strings.Split(text, "\n")
@@ -164,20 +166,25 @@ func Protect(text string) (protected string, refs []Ref, malformed []int, err er
 
 // Expand replaces the placeholders left by Protect with value(name) in every
 // text field of the parsed components. Call it only for text that Protect
-// changed.
-func Expand(components []parser.Component, refs []Ref, value func(name string) string) error {
+// changed. A reference in an image cannot be expanded: image paths are
+// printed in load errors, which would expose the value. imageLines lists the
+// lines of such images; when it is not empty, nothing was expanded.
+func Expand(components []parser.Component, refs []Ref, value func(name string) string) (imageLines []int) {
 	for i, comp := range components {
 		img, ok := comp.(parser.Image)
 		if !ok {
 			continue
 		}
 		if numberedRegex.MatchString(img.Path) || numberedRegex.MatchString(img.Alt) {
-			// Image paths are printed in load errors, which would expose the value.
-			return fmt.Errorf("line %d: secret references are not supported in images", img.Line)
+			imageLines = append(imageLines, img.Line)
+			continue
 		}
 		img.Path = strings.ReplaceAll(img.Path, literalPlaceholder, refPrefix)
 		img.Alt = strings.ReplaceAll(img.Alt, literalPlaceholder, refPrefix)
 		components[i] = img
+	}
+	if len(imageLines) > 0 {
+		return imageLines
 	}
 	expand := func(s string) string {
 		if !strings.Contains(s, placeholderOpen) {
@@ -391,6 +398,10 @@ func (s *Store) flatten(mapping *yaml.Node, prefix string, depth int) error {
 		return fmt.Errorf("the mappings are nested too deeply")
 	}
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Tag == "!!merge" {
+			// Read as an ordinary key, "<<" would become part of the names.
+			return fmt.Errorf("the merge key \"<<\" is not supported; write the names and values out")
+		}
 		name := prefix + mapping.Content[i].Value
 		value := resolveAlias(mapping.Content[i+1])
 		switch value.Kind {

@@ -53,6 +53,7 @@ func TestLoadErrorsOmitContent(t *testing.T) {
 		"flow.yml":      "password: {" + fake + "}\n",
 		"flow2.yml":     "db: {user: one-value, password: {" + fake + "}}\n",
 		"three.yml":     "a: one-value\n---\n---\nb: " + fake + "\n",
+		"merge.yml":     "base: &b\n  password: " + fake + "\nprod:\n  <<: *b\n",
 	} {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -297,6 +298,12 @@ func TestProtect(t *testing.T) {
 	if _, _, _, err := Protect("{{secret:a}} "); err == nil {
 		t.Error("expected an error for reserved characters")
 	}
+	// The parser decodes character references, so these become the same characters.
+	for _, text := range []string{"{{secret:a}} &#xE000;0&#xE001;", "{{secret:a}} &#57344;&#57345;"} {
+		if _, _, _, err := Protect(text); err == nil {
+			t.Errorf("%q: expected an error for reserved characters", text)
+		}
+	}
 }
 
 func TestExpand(t *testing.T) {
@@ -306,12 +313,12 @@ func TestExpand(t *testing.T) {
 	}
 	values := map[string]string{"a": "*A|a*", "b": "__B__", "multi": "one\ntwo"}
 	components := parser.Parse(protected)
-	if err := Expand(components, refs, func(name string) string { return values[name] }); err == nil || !strings.Contains(err.Error(), "line 9") {
-		t.Errorf("image reference: got %v, want an error for line 9", err)
+	if lines := Expand(components, refs, func(name string) string { return values[name] }); !slices.Equal(lines, []int{9}) {
+		t.Errorf("image reference: got lines %v, want line 9", lines)
 	}
 	components = components[:len(components)-2]
-	if err := Expand(components, refs, func(name string) string { return values[name] }); err != nil {
-		t.Fatal(err)
+	if lines := Expand(components, refs, func(name string) string { return values[name] }); lines != nil {
+		t.Fatalf("unexpected image lines %v", lines)
 	}
 	if h := components[0].(parser.H1); h.Text != values["a"] {
 		t.Error("heading text differs from the value")
