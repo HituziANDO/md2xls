@@ -1074,6 +1074,55 @@ func TestInitTemplateDescribesSecrets(t *testing.T) {
 	}
 }
 
+// Text next to a reference is read as it would be next to a typed word:
+// underscores between references are not emphasis.
+func TestTextBetweenReferencesIsKept(t *testing.T) {
+	t.Chdir(t.TempDir())
+	const refs = "{{secret:env}}_{{secret:app}}_{{secret:region}}"
+	const want = "fake1_fake2_fake3"
+	writeFiles(t, map[string]string{
+		"doc.md":     "Bucket: " + refs + " and {{secret:env}}_db_{{secret:region}}\n\n- " + refs + "\n\n> " + refs + "\n\n| a |\n| --- |\n| " + refs + " |\n",
+		"typed.md":   "Bucket: " + want + " and fake1_db_fake3\n\n- " + want + "\n\n> " + want + "\n\n| a |\n| --- |\n| " + want + " |\n",
+		"values.yml": "env: fake1\napp: fake2\nregion: fake3\n",
+	})
+	if err := runForward([]string{"--secrets", "values.yml", "-d", "doc.xlsx", "doc.md"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runForward([]string{"-d", "typed.xlsx", "typed.md"}); err != nil {
+		t.Fatal(err)
+	}
+	var cells [2][]string
+	for i, path := range []string{"doc.xlsx", "typed.xlsx"} {
+		f, err := excelize.OpenFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, err := f.GetRows("Sheet1")
+		f.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			cells[i] = append(cells[i], row...)
+		}
+	}
+	if !slices.Equal(cells[0], cells[1]) {
+		t.Error("the cells differ from the ones of the same document with the values typed in")
+	}
+}
+
+// A paragraph is wrapped into rows, so its length is not the length of a cell.
+func TestLongParagraphWithValueConverts(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeFiles(t, map[string]string{
+		"doc.md":     strings.Repeat("word ", 6600) + "{{secret:pw}} end\n",
+		"values.yml": "pw: Fake-Pass-7788\n",
+	})
+	if err := runForward([]string{"--secrets", "values.yml", "-d", "doc.xlsx", "doc.md"}); err != nil {
+		t.Error("a long paragraph with a value was rejected")
+	}
+}
+
 // Image paths are printed in image-loading messages, so a value must not
 // reach them.
 func TestSecretReferencesInImages(t *testing.T) {

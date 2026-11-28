@@ -225,7 +225,7 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 		}
 		for j, comp := range components {
 			// Text without values keeps the behaviour of documents without references.
-			if len(names[j]) > 0 && secrets.LongestText(comp)+cellPrefixAllowance > excelize.TotalCellChars {
+			if len(names[j]) > 0 && longestCell(comp, cfg.MaxNumOfCharactersPerLine)+cellPrefixAllowance > excelize.TotalCellChars {
 				problems = append(problems, fmt.Sprintf("%s:%d: the text with its secret values is longer than %d characters (the %d an Excel cell can hold, less %d kept for a heading number or a list marker)",
 					cfg.Sources[i], lineOf(comp), excelize.TotalCellChars-cellPrefixAllowance, excelize.TotalCellChars, cellPrefixAllowance))
 			}
@@ -241,6 +241,17 @@ func parseSources(cfg config.Config, mask bool) ([][]parser.Component, error) {
 		return nil, fmt.Errorf("secret values cannot be written:\n  %s", strings.Join(problems, "\n  "))
 	}
 	return result, nil
+}
+
+// longestCell returns the length, in the UTF-16 units Excel counts, of the
+// longest text that the component puts in one cell. A paragraph is wrapped
+// into rows of maxChars characters, each of at most two units.
+func longestCell(comp parser.Component, maxChars int) int {
+	longest := secrets.LongestText(comp)
+	if _, ok := comp.(parser.PlainText); ok && maxChars > 0 {
+		longest = min(longest, 2*maxChars)
+	}
+	return longest
 }
 
 // cellPrefixAllowance covers the heading number or the indented list marker

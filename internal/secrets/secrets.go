@@ -32,18 +32,22 @@ const MinReverseLength = 4
 const Mask = "***"
 
 // Private-use characters delimit a reference while the Markdown is parsed, so
-// that neither the reference nor its value is read as Markdown syntax.
+// that neither the reference nor its value is read as Markdown syntax. A
+// numbered placeholder also starts and ends with placeholderWord: the parser
+// then reads the text around a reference as it reads the text around a typed
+// word, and "_" between two references is not taken for emphasis.
 const (
 	placeholderOpen  = ""
 	placeholderClose = ""
+	placeholderWord  = "x"
 )
 
 var (
 	refRegex = regexp.MustCompile(`\{\{secret:([A-Za-z0-9._-]+)\}\}`)
 	// The number is an index into the references; without a number the
 	// placeholder stands for an escaped, literal "{{secret:".
-	placeholderRegex = regexp.MustCompile(placeholderOpen + `([0-9]*)` + placeholderClose)
-	numberedRegex    = regexp.MustCompile(placeholderOpen + `[0-9]+` + placeholderClose)
+	placeholderRegex = regexp.MustCompile(placeholderWord + placeholderOpen + `([0-9]+)` + placeholderClose + placeholderWord + `|` + placeholderOpen + placeholderClose)
+	numberedRegex    = regexp.MustCompile(placeholderWord + placeholderOpen + `[0-9]+` + placeholderClose + placeholderWord)
 	// Text such as "{{ secret:NAME }}" or "{{Secret:NAME}}" that a writer may
 	// take for a reference.
 	lookAlikeRegex = regexp.MustCompile(`(?i)\\?\{\{\s*secret\s*:`)
@@ -155,7 +159,7 @@ func Protect(text string) (protected string, refs []Ref, malformed []int, err er
 		lines[i] = refRegex.ReplaceAllStringFunc(line, func(ref string) string {
 			name := refRegex.FindStringSubmatch(ref)[1]
 			refs = append(refs, Ref{Name: name, Line: i + 1})
-			return placeholderOpen + strconv.Itoa(len(refs)-1) + placeholderClose
+			return placeholderWord + placeholderOpen + strconv.Itoa(len(refs)-1) + placeholderClose + placeholderWord
 		})
 		if strings.Contains(lines[i], refPrefix) {
 			malformed = append(malformed, i+1)
@@ -379,10 +383,23 @@ func Load(path string) (*Store, error) {
 	if root.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("secrets file %q must be a YAML mapping of names to values", path)
 	}
-	if err := store.flatten(root, "", 0); err != nil {
+	aliased := map[*yaml.Node]bool{}
+	aliasTargets(&doc, aliased)
+	if err := store.flatten(root, "", 0, aliased); err != nil {
 		return nil, fmt.Errorf("secrets file %q: %w", path, err)
 	}
 	return store, nil
+}
+
+// aliasTargets collects the nodes that an alias in the document refers to.
+func aliasTargets(node *yaml.Node, targets map[*yaml.Node]bool) {
+	if node.Kind == yaml.AliasNode {
+		targets[node.Alias] = true
+		return
+	}
+	for _, child := range node.Content {
+		aliasTargets(child, targets)
+	}
 }
 
 func resolveAlias(node *yaml.Node) *yaml.Node {
@@ -392,7 +409,7 @@ func resolveAlias(node *yaml.Node) *yaml.Node {
 	return node
 }
 
-func (s *Store) flatten(mapping *yaml.Node, prefix string, depth int) error {
+func (s *Store) flatten(mapping *yaml.Node, prefix string, depth int, aliased map[*yaml.Node]bool) error {
 	if depth > 100 {
 		// An alias that refers to its own ancestor never ends.
 		return fmt.Errorf("the mappings are nested too deeply")
@@ -416,10 +433,18 @@ func (s *Store) flatten(mapping *yaml.Node, prefix string, depth int) error {
 					}
 				}
 			}
-			if err := s.flatten(value, name+".", depth+1); err != nil {
+			if err := s.flatten(value, name+".", depth+1, aliased); err != nil {
 				return err
 			}
 		case yaml.ScalarNode:
+			// Unquoted, a first word "!text" is a tag and "&text" an anchor:
+			// YAML leaves that word out of the value without notice.
+			if strings.HasPrefix(value.Tag, "!") && !strings.HasPrefix(value.Tag, "!!") {
+				return fmt.Errorf("the value of %q starts with \"!\", which YAML reads as a tag; put the value in quotes", name)
+			}
+			if value.Anchor != "" && !aliased[value] {
+				return fmt.Errorf("the value of %q starts with \"&\", which YAML reads as an anchor that nothing refers to; put the value in quotes", name)
+			}
 			if _, exists := s.values[name]; exists {
 				return fmt.Errorf("the name %q is defined more than once", name)
 			}

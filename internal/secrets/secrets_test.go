@@ -54,6 +54,9 @@ func TestLoadErrorsOmitContent(t *testing.T) {
 		"flow2.yml":     "db: {user: one-value, password: {" + fake + "}}\n",
 		"three.yml":     "a: one-value\n---\n---\nb: " + fake + "\n",
 		"merge.yml":     "base: &b\n  password: " + fake + "\nprod:\n  <<: *b\n",
+		"tag.yml":       "a: !" + fake + " two-words\n",
+		"tagonly.yml":   "a: !" + fake + "\n",
+		"anchor.yml":    "a: &" + fake + " two-words\n",
 	} {
 		path := filepath.Join(dir, name)
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -247,6 +250,15 @@ func TestLoadAcceptsBracedMappings(t *testing.T) {
 	for _, content := range []string{"smtp: {password: one-value}\n", "{\"smtp\": {\"password\": \"one-value\"}}\n"} {
 		if v, ok := loadYAML(t, content).Value("smtp.password"); !ok || v != "one-value" {
 			t.Errorf("%q: the value was not read", content)
+		}
+	}
+}
+
+func TestLoadResolvesAliases(t *testing.T) {
+	store := loadYAML(t, "a: &x one-value\nb: *x\nc: !!str 0123\n")
+	for name, want := range map[string]string{"a": "one-value", "b": "one-value", "c": "0123"} {
+		if got, ok := store.Value(name); !ok || got != want {
+			t.Errorf("%s: the value was not read", name)
 		}
 	}
 }
